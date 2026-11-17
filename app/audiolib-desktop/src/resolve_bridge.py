@@ -10,7 +10,94 @@ Resolve 只提供 Python / Lua 脚本入口，这是 Rust 侧唯一可靠的接�
 
 import os
 import platform
+import subprocess
 import sys
+
+
+CREATE_NO_WINDOW = 0x08000000
+
+
+def windows_resolve_script_api():
+    """找 DaVinci Resolve 的脚本 API 目录（Support/Developer/Scripting）。
+
+    ProgramData 一般固定在系统盘，但装在别的盘或改过系统目录时也要能找到，
+    所以先按环境变量找，再逐盘兜底。
+    """
+    candidates = []
+    program_data = os.environ.get("PROGRAMDATA")
+    if program_data:
+        candidates.append(program_data)
+    candidates.append(r"C:\ProgramData")
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        candidates.append(letter + ":\\ProgramData")
+
+    seen = set()
+    for root in candidates:
+        path = os.path.join(root, "Blackmagic Design", "DaVinci Resolve",
+                            "Support", "Developer", "Scripting")
+        key = os.path.normcase(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if os.path.isdir(path):
+            return path
+    return None
+
+
+def windows_resolve_script_library():
+    """找 fusionscript.dll。
+
+    Resolve 可以装在任意盘任意目录（很多人装在 D:/E: 盘的自定义路径），
+    光看 %PROGRAMFILES% 会漏。这里按可靠性从高到低试：
+      1. 用户自己配的 RESOLVE_SCRIPT_LIB
+      2. 正在运行的 Resolve.exe 所在目录（最准）
+      3. PROGRAMFILES 系列环境变量
+      4. 所有盘符下的 Program Files / Program Files (x86)
+    """
+    candidates = []
+
+    configured = os.environ.get("RESOLVE_SCRIPT_LIB")
+    if configured:
+        candidates.append(configured)
+
+    # 从运行中的 Resolve 进程拿安装目录。导入本来也要求 Resolve 开着，
+    # 所以这一步几乎总能命中，且不受自定义安装路径影响。
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "(Get-Process Resolve -ErrorAction SilentlyContinue | "
+             "Select-Object -First 1).Path"],
+            capture_output=True, text=True, timeout=20,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        executable = (completed.stdout or "").strip()
+        if executable and os.path.isfile(executable):
+            candidates.append(
+                os.path.join(os.path.dirname(executable), "fusionscript.dll"))
+    except Exception:  # noqa: BLE001 - 探测失败就走后面的兜底
+        pass
+
+    roots = []
+    for variable in ("PROGRAMFILES", "PROGRAMW6432", "PROGRAMFILES(X86)"):
+        value = os.environ.get(variable)
+        if value:
+            roots.append(value)
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        for sub in ("Program Files", "Program Files (x86)"):
+            roots.append(letter + ":\\" + sub)
+    for root in roots:
+        candidates.append(os.path.join(root, "Blackmagic Design",
+                                       "DaVinci Resolve", "fusionscript.dll"))
+
+    seen = set()
+    for candidate in candidates:
+        key = os.path.normcase(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 def configure_resolve_environment():
@@ -22,12 +109,17 @@ def configure_resolve_environment():
         library = ("/Applications/DaVinci Resolve/DaVinci Resolve.app/"
                    "Contents/Libraries/Fusion/fusionscript.so")
     elif system == "Windows":
-        program_data = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
-        api = os.path.join(program_data, "Blackmagic Design", "DaVinci Resolve",
-                           "Support", "Developer", "Scripting")
-        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-        library = os.path.join(program_files, "Blackmagic Design",
-                               "DaVinci Resolve", "fusionscript.dll")
+        api = windows_resolve_script_api()
+        if not api:
+            return ("找不到达芬奇脚本目录：各盘 ProgramData\\Blackmagic Design"
+                    "\\DaVinci Resolve\\Support\\Developer\\Scripting 都不存在。"
+                    "请确认装的是 DaVinci Resolve Studio 且安装完整。")
+        library = windows_resolve_script_library()
+        if not library:
+            return ("找不到 fusionscript.dll：已检查 %PROGRAMFILES%、"
+                    "正在运行的 Resolve 安装目录，以及各盘 Program Files 下的 "
+                    "Blackmagic Design\\DaVinci Resolve。请确认 Resolve 正在运行，"
+                    "或手动设置环境变量 RESOLVE_SCRIPT_LIB 指向 fusionscript.dll。")
     else:
         return "暂不支持当前系统，达芬奇桥接目前只覆盖 macOS 和 Windows"
 
