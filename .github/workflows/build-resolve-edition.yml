@@ -64,6 +64,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 上游 .cargo/config.toml 把默认 target 写死成 x86_64-pc-windows-msvc。
+      # 在这台机器上产物会落到 target/<triple>/release/，而打包步骤读的是
+      # target/release/，于是 cp 找不到 exe。去掉这行即可回到原生 target。
+      - name: 使用本机原生 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i.bak '/^target = "x86_64-pc-windows-msvc"$/d' .cargo/config.toml
+          ! grep -q '^target = ' .cargo/config.toml
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.97.1'
@@ -116,6 +126,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 上游 .cargo/config.toml 默认 target 是 x86_64-pc-windows-msvc。
+      # 在 macOS 上这会变成没有 std 的交叉编译，报 can't find crate for `core`。
+      # 去掉这行，让 macOS 按本机 aarch64-apple-darwin 原生编译。
+      - name: 使用本机原生 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i.bak '/^target = "x86_64-pc-windows-msvc"$/d' .cargo/config.toml
+          ! grep -q '^target = ' .cargo/config.toml
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.97.1'
@@ -159,9 +179,10 @@ jobs:
           codesign --force --deep --sign - "$STAGE/$BUNDLE"
           codesign --verify --deep --strict "$STAGE/$BUNDLE"
 
-          cd dist
-          COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$BUNDLE" "$NAME.zip"
-          ls -lh "$NAME.zip"
+          # .app 在 dist/$NAME/ 里面，不在 dist/ 根下，所以先切到 $STAGE 再打包。
+          cd "$STAGE"
+          COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$BUNDLE" "../$NAME.zip"
+          ls -lh "../$NAME.zip"
 
       - uses: actions/upload-artifact@v4
         with:
