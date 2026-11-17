@@ -4517,6 +4517,13 @@ main-scroll := ScrollView {
                                 DetailParameter { label: root.chinese ? "位深" : "Bit depth"; value: root.selected-bit-depth; }
                                 DetailParameter { label: root.chinese ? "声道" : "Channels"; value: root.selected-channels; }
                             }
+                            // 达芬奇整合：主按钮紧跟参数区，选中声音后一眼可见。
+                            if root.has-selection && !root.selected-missing: StudioAction { height: 32px * Theme.ui-scale; primary: true;
+                                enabled: !root.background-blocked && !root.remote-mode;
+                                label: root.chinese ? "导入到达芬奇时间线" : "Import to Resolve timeline";
+                                action-label: root.chinese ? "把当前声音插入达芬奇时间线的播放头位置" : "Insert this sound at the DaVinci Resolve playhead";
+                                clicked => { root.file-action-requested(root.selected-id, 22); }
+                            }
                             if root.selected-missing: VerticalLayout { spacing: 6px * Theme.ui-scale;
                                 Text { text: root.chinese ? "原位置找不到此文件。选择移动或改名后的 WAV，保留已有标注。" : "File missing at its original location. Locate the moved or renamed WAV to keep its annotations."; color: Theme.warning; font-size: Theme.font(12); wrap: word-wrap; }
                                 StudioAction { height: 32px * Theme.ui-scale; primary: true; enabled: !root.closing && !root.library-busy; label: root.chinese ? "选择新位置，修复引用…" : "Locate file and repair…"; clicked => { root.file-action-requested(root.selected-id, 20); } }
@@ -4568,13 +4575,6 @@ main-scroll := ScrollView {
                         }
                     }
                     if !root.filters-visible && root.has-selection: Label { text: root.metadata-dirty ? (root.chinese ? "标注待自动保存 · Ctrl S 保存" : "Pending auto-save · Ctrl S saves") : root.remote-mode ? (root.chinese ? "标注已保存到服务器" : "Annotations saved to server") : (root.chinese ? "标注已保存到素材库" : "Annotations saved to library"); color: root.metadata-dirty ? Theme.warning : Theme.muted; font-size: Theme.font(10); }
-                    // 达芬奇整合：常驻底部操作条，选中声音后一眼可见，不随详情滚动。
-                    if !root.filters-visible && root.has-selection && !root.selected-missing: StudioAction { height: 30px * Theme.ui-scale; primary: true;
-                        enabled: !root.background-blocked && !root.remote-mode;
-                        label: root.chinese ? "导入到达芬奇时间线" : "Import to Resolve timeline";
-                        action-label: root.chinese ? "把当前声音插入达芬奇时间线的播放头位置" : "Insert this sound at the DaVinci Resolve playhead";
-                        clicked => { root.file-action-requested(root.selected-id, 22); }
-                    }
                     if !root.filters-visible && root.has-selection: HorizontalLayout { height: 32px * Theme.ui-scale; spacing: 7px * Theme.ui-scale;
                         StudioAction { horizontal-stretch: 1; min-width: 0px; label: root.chinese ? "在文件夹中显示" : "Reveal in folder"; enabled: !root.background-blocked && !root.remote-mode && !root.selected-missing; clicked => { root.file-action-requested(root.selected-id, 2); } }
                         ExportButton { horizontal-stretch: 1; min-width: 0px; label: root.chinese ? "导出…" : "Export…"; action-label: root.chinese ? "拖出 WAV 文件" : "Drag out WAV file"; enabled: !root.background-blocked && !root.selected-missing; file-id: root.selected-id;
