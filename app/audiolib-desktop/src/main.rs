@@ -21,6 +21,7 @@ mod playback_repaint_tests;
 mod progressive_waveform;
 #[cfg(test)]
 mod responsive_layout_tests;
+mod resolve_bridge;
 #[cfg(test)]
 mod search_scope_tests;
 #[cfg(test)]

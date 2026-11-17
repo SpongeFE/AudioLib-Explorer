@@ -7563,6 +7563,24 @@ impl Controller {
         });
     }
 
+    /// 把一条记录对应的音频送进 DaVinci Resolve 当前时间线的播放头。
+    ///
+    /// 取路径、启动 Python、等待结果都在后台线程，UI 线程只接收最终状态，
+    /// 避免 Resolve 响应慢时把界面卡住。
+    fn import_to_resolve(self: &Arc<Self>, path: String) {
+        // 连 Resolve 的脚本接口要几百毫秒到几秒，先给一句反馈，
+        // 免得用户以为点了没反应又去点第二次。
+        self.status("正在把声音送进达芬奇时间线…".to_string());
+        let c = self.clone();
+        std::thread::spawn(move || {
+            let message = match crate::resolve_bridge::import_to_timeline(Path::new(&path)) {
+                Ok(done) => done,
+                Err(reason) => reason,
+            };
+            c.status(message);
+        });
+    }
+
     fn file_action(self: &Arc<Self>, id: i64, action: i32) {
         if !self.available() {
             return;
@@ -7617,6 +7635,15 @@ impl Controller {
             let c = self.clone();
             std::thread::spawn(move || match provider.get_audio(id) {
                 Ok(file) => c.open_explorer(file.into_data().file_path, true),
+                Err(error) => c.status(error.to_string()),
+            });
+        } else if action == 22 {
+            // 送进 DaVinci Resolve 时间线。和「在资源管理器中定位」一样先取
+            // 本地绝对路径；服务器快照没有本地文件，前面已经被 remote 拦下。
+            let provider = self.provider();
+            let c = self.clone();
+            std::thread::spawn(move || match provider.get_audio(id) {
+                Ok(file) => c.import_to_resolve(file.into_data().file_path),
                 Err(error) => c.status(error.to_string()),
             });
         }

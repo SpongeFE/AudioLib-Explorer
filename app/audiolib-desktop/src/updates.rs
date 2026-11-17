@@ -86,11 +86,10 @@ impl DesktopUpdates {
                 return None;
             }
         };
-        if !apply_update_policy(
-            ui,
-            &client,
-            std::env::var("AUDIOLIB_UPDATE_DISABLE").as_deref() == Ok("1"),
-        ) {
+        // 达芬奇整合版不跟随官方发布通道：官方更新包会整体替换可执行文件，
+        // 把本版的「导入到达芬奇时间线」一并覆盖掉。这里永久关闭更新检查，
+        // 只保留「此安装已关闭更新检查」的说明。
+        if !apply_update_policy(ui, &client, true) {
             // Leave startup and manual check/install callbacks unbound for local
             // development builds, including direct EXE launches without a launcher.
             return None;
