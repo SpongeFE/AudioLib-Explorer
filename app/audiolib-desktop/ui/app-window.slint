@@ -4568,6 +4568,13 @@ main-scroll := ScrollView {
                         }
                     }
                     if !root.filters-visible && root.has-selection: Label { text: root.metadata-dirty ? (root.chinese ? "标注待自动保存 · Ctrl S 保存" : "Pending auto-save · Ctrl S saves") : root.remote-mode ? (root.chinese ? "标注已保存到服务器" : "Annotations saved to server") : (root.chinese ? "标注已保存到素材库" : "Annotations saved to library"); color: root.metadata-dirty ? Theme.warning : Theme.muted; font-size: Theme.font(10); }
+                    // 达芬奇整合：常驻底部操作条，选中声音后一眼可见，不随详情滚动。
+                    if !root.filters-visible && root.has-selection && !root.selected-missing: StudioAction { height: 30px * Theme.ui-scale; primary: true;
+                        enabled: !root.background-blocked && !root.remote-mode;
+                        label: root.chinese ? "导入到达芬奇时间线" : "Import to Resolve timeline";
+                        action-label: root.chinese ? "把当前声音插入达芬奇时间线的播放头位置" : "Insert this sound at the DaVinci Resolve playhead";
+                        clicked => { root.file-action-requested(root.selected-id, 22); }
+                    }
                     if !root.filters-visible && root.has-selection: HorizontalLayout { height: 32px * Theme.ui-scale; spacing: 7px * Theme.ui-scale;
                         StudioAction { horizontal-stretch: 1; min-width: 0px; label: root.chinese ? "在文件夹中显示" : "Reveal in folder"; enabled: !root.background-blocked && !root.remote-mode && !root.selected-missing; clicked => { root.file-action-requested(root.selected-id, 2); } }
                         ExportButton { horizontal-stretch: 1; min-width: 0px; label: root.chinese ? "导出…" : "Export…"; action-label: root.chinese ? "拖出 WAV 文件" : "Drag out WAV file"; enabled: !root.background-blocked && !root.selected-missing; file-id: root.selected-id;
@@ -4732,6 +4739,7 @@ main-scroll := ScrollView {
             MenuItem { title: (root.context-file.favorite ? (root.chinese ? "取消收藏" : "Remove from favorites") : (root.chinese ? "添加到收藏" : "Add to favorites")); enabled: !root.remote-writes-blocked && !root.metadata-writes-blocked; activated => { root.file-action(5); } }
             MenuSeparator { }
             MenuItem { title: (root.native-macos ? (root.chinese ? "在访达中显示" : "Reveal in Finder") : (root.chinese ? "在资源管理器中定位" : "Reveal in Explorer")) + root.ro-suffix; enabled: !root.remote-mode; activated => { root.file-action(2); } }
+            MenuItem { title: root.chinese ? "导入到达芬奇时间线" : "Import to Resolve timeline"; enabled: !root.context-file.missing && !root.remote-mode; activated => { root.file-action(22); } }
             MenuItem { title: root.chinese ? "复制完整路径" : "Copy full path"; activated => { root.copy-text(root.context-file.file-path); } }
             MenuItem { title: (root.chinese ? "修复文件引用…" : "Repair file reference…") + root.ro-suffix; enabled: !root.remote-mode; activated => { root.file-action(20); } }
             MenuItem { title: (root.chinese ? "从素材库移除…" : "Remove from library…") + root.removal-suffix; enabled: root.removal-allowed; activated => { root.file-action(21); } }
