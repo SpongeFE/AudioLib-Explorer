@@ -141,6 +141,25 @@ def configure_resolve_environment():
     return None
 
 
+class BridgeError(Exception):
+    """能直接展示给用户的桥接错误。"""
+
+
+def api_call(obj, name, *args):
+    """调用达芬奇脚本 API，并在方法缺失时给出可读提示。
+
+    老版本达芬奇的 Python 绑定里，不存在的方法属性会是 None，
+    直接调用只会抛 `TypeError: 'NoneType' object is not callable`，
+    看不出是哪一步；这里统一检查，把方法名带出来。
+    """
+    method = getattr(obj, name, None)
+    if not callable(method):
+        raise BridgeError(
+            "当前达芬奇版本不支持 %s()，请升级到 DaVinci Resolve 18.6 或更新版本" % name
+        )
+    return method(*args)
+
+
 def as_int(value, fallback):
     """Resolve 的属性一律以字符串返回，这里统一转成整数。"""
     if value is None or value == "":
@@ -208,7 +227,7 @@ def find_existing_clip(media_pool, audio_path):
 
 def clip_span(item, fps):
     """返回素材自身的入点与出点帧号。Resolve 给的是字符串，要逐级兜底。"""
-    properties = item.GetClipProperty() or {}
+    properties = api_call(item, "GetClipProperty") or {}
     start = as_int(properties.get("Start"), 0)
 
     end = as_int(properties.get("End"), None)
@@ -256,7 +275,7 @@ def pick_target_track(timeline, start_frame, end_frame):
     优先复用播放头处本来就空着的音轨，全被占用时才新建一条，
     这样反复插入不会把音轨堆成一长串。
     """
-    count = timeline.GetTrackCount("audio") or 0
+    count = api_call(timeline, "GetTrackCount", "audio") or 0
     for index in range(1, count + 1):
         if track_is_free(timeline, index, start_frame, end_frame):
             return index, False
@@ -291,37 +310,46 @@ def main():
         print("加载达芬奇脚本模块失败：" + str(error))
         return 1
 
-    resolve = dvr_script.scriptapp("Resolve")
+    scriptapp = getattr(dvr_script, "scriptapp", None)
+    if not callable(scriptapp):
+        print("达芬奇脚本模块里没有 scriptapp，脚本库可能和达芬奇版本不匹配")
+        return 1
+
+    resolve = scriptapp("Resolve")
     if not resolve:
         print("没有连上 DaVinci Resolve，请确认达芬奇已经打开")
         return 1
 
-    project_manager = resolve.GetProjectManager()
-    project = project_manager.GetCurrentProject() if project_manager else None
+    project_manager = api_call(resolve, "GetProjectManager")
+    project = api_call(project_manager, "GetCurrentProject") if project_manager else None
     if not project:
         print("达芬奇里没有打开的项目")
         return 1
 
-    timeline = project.GetCurrentTimeline()
+    timeline = api_call(project, "GetCurrentTimeline")
     if not timeline:
         print("当前项目没有激活的时间线")
         return 1
 
-    media_pool = project.GetMediaPool()
+    media_pool = api_call(project, "GetMediaPool")
     if not media_pool:
         print("拿不到达芬奇的媒体池")
         return 1
 
     try:
-        fps = float(timeline.GetSetting("timelineFrameRate") or 24)
-    except (TypeError, ValueError):
+        fps = float(api_call(timeline, "GetSetting", "timelineFrameRate") or 24)
+    except (BridgeError, TypeError, ValueError):
         fps = 24.0
 
-    playhead = timeline.GetCurrentFrame()
+    playhead = None
+    try:
+        playhead = api_call(timeline, "GetCurrentFrame")
+    except BridgeError:
+        playhead = None
     if not isinstance(playhead, int) or playhead < 0:
-        playhead = frame_from_timecode(timeline.GetCurrentTimecode(), fps)
+        playhead = frame_from_timecode(api_call(timeline, "GetCurrentTimecode"), fps)
 
-    imported = media_pool.ImportMedia([audio_path])
+    imported = api_call(media_pool, "ImportMedia", [audio_path])
     item = imported[0] if imported else find_existing_clip(media_pool, audio_path)
     if item is None:
         print("导入媒体池失败，达芬奇可能不支持这个音频格式")
@@ -332,7 +360,7 @@ def main():
 
     track_index, created = pick_target_track(timeline, playhead, playhead + length)
 
-    placed = media_pool.AppendToTimeline([{
+    placed = api_call(media_pool, "AppendToTimeline", [{
         "mediaPoolItem": item,
         "startFrame": start,
         "endFrame": end,
@@ -344,7 +372,7 @@ def main():
         print("达芬奇拒绝把这段音频放进时间线")
         return 1
 
-    name = item.GetName() or os.path.basename(audio_path)
+    name = api_call(item, "GetName") or os.path.basename(audio_path)
     landed = None
     try:
         landed = placed[0].GetStart()
@@ -364,4 +392,15 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except BridgeError as error:
+        print(str(error))
+        sys.exit(1)
+    except Exception as error:  # noqa: BLE001 - 把出错位置带回界面
+        tb = sys.exc_info()[2]
+        while tb is not None and tb.tb_next is not None:
+            tb = tb.tb_next
+        line = tb.tb_lineno if tb is not None else 0
+        print("桥接脚本第 %d 行出错：%s: %s" % (line, type(error).__name__, error))
+        sys.exit(1)
