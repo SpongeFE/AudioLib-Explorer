@@ -2476,6 +2476,19 @@ export component AppWindow inherits Window {
         root.context-file = row;
         file-menu.show({x: position.x - file-menu.absolute-position.x, y: position.y - file-menu.absolute-position.y});
     }
+
+    // 在波形区右键时弹出同一套文件菜单，用当前选中项补一份行数据。
+    public function show-selected-file-menu(position: Point) {
+        if !root.has-selection { return; }
+        root.context-file = {
+            id: root.selected-id, file-path: root.selected-path, name: root.selected-name,
+            folder: "", duration: "", format: "", channels: "", tags: "",
+            tag-preview: [], tag-extra: 0, duration-clock: "", album: "",
+            favorite: root.edit-favorite, played: false, missing: root.selected-missing,
+            checked: false, marker: transparent, wave-state: 0, wave: root.waveform-image,
+        };
+        file-menu.show({x: position.x - file-menu.absolute-position.x, y: position.y - file-menu.absolute-position.y});
+    }
     // A header cycles ascending → descending → the default order (relevance with a
     // search, otherwise by filename). The database sorts the complete result.
     function sort-table(index: int) {
@@ -3741,6 +3754,9 @@ main-scroll := ScrollView {
             output-backend: root.output-backend; output-rate: root.output-rate; output-xruns: root.output-xruns;
             target-start: root.wave-target-start; target-end: root.wave-target-end;
             relink-enabled: !root.closing && !root.library-busy && root.has-selection;
+            resolve-enabled: root.has-selection && !root.selected-missing && !root.remote-mode;
+            import-resolve => { root.file-action-requested(root.selected-id, 22); }
+            context-menu-requested(position) => { root.show-selected-file-menu(position); }
             playing: root.playing; smooth-progress: root.playback-smooth; progress-clock: root.playback-clock; playback-rate: root.confirmed-playback-rate; waveform: root.waveform-image; waveform-ready: root.waveform-ready;
             name: root.playback-name; info: root.waveform-info; output: root.output-summary;
             position: root.play-position; duration: root.play-duration; time: root.play-time; end-time: root.play-end;
@@ -4627,6 +4643,9 @@ main-scroll := ScrollView {
             output-backend: root.output-backend; output-rate: root.output-rate; output-xruns: root.output-xruns;
             target-start: root.wave-target-start; target-end: root.wave-target-end;
             relink-enabled: !root.closing && !root.library-busy && root.has-selection;
+            resolve-enabled: root.has-selection && !root.selected-missing && !root.remote-mode;
+            import-resolve => { root.file-action-requested(root.selected-id, 22); }
+            context-menu-requested(position) => { root.show-selected-file-menu(position); }
             playing: root.playing; smooth-progress: root.playback-smooth; progress-clock: root.playback-clock; playback-rate: root.confirmed-playback-rate; waveform: root.waveform-image; waveform-ready: root.waveform-ready;
             name: root.playback-name; info: root.waveform-info; output: root.output-summary;
             position: root.play-position; duration: root.play-duration; time: root.play-time; end-time: root.play-end;
