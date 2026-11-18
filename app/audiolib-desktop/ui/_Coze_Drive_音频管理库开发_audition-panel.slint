@@ -781,6 +781,8 @@ component WaveformPointer inherits Image {
 // The plot and its independent feedback row share one gesture owner. The row
 // never participates in source-time mapping, even for a very narrow selection.
 component WaveSelectionOverlay inherits Rectangle {
+    // 右键波形区时把窗口坐标交给外层，弹出文件菜单。
+    callback context-requested(Point);
     in property <bool> enabled;
     in property <bool> seek-enabled;
     in property <string> seek-clock;
@@ -951,6 +953,11 @@ component WaveSelectionOverlay inherits Rectangle {
         mouse-cursor: root.native-cursor ? crosshair : (root.pointer-kind > 0 && root.pointer-kind < 11 ? none : default);
         pointer-event(event) => {
             if event.kind == PointerEventKind.cancel { root.cancel-gesture(); return; }
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                // 右键波形区：弹出和列表一致的菜单（含「导入到达芬奇时间线」）。
+                root.context-requested({x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y});
+                return;
+            }
             if event.button != PointerEventButton.left { return; }
             if event.kind == PointerEventKind.down {
                 if (!root.enabled && !root.seek-enabled) || root.export-state == 3 { return; }
@@ -1140,6 +1147,7 @@ component ClassicAuditionPanel inherits Rectangle {
     // 达芬奇整合：选中声音时，在播放器控制栏直接给出「导入到达芬奇时间线」。
     in property <bool> resolve-enabled: false;
     callback import-resolve();
+    callback context-menu-requested(Point);
     property <bool> transport-ready: root.ready && !root.missing && !root.busy && root.state != 1 && root.state != 7;
     property <string> unavailable: root.busy ? (root.chinese ? "素材库操作中，请稍候" : "Library operation in progress")
         : root.missing ? (root.chinese ? "源文件不可用，请重新链接" : "Source file unavailable; relink it first")
@@ -1335,6 +1343,7 @@ component ClassicAuditionPanel inherits Rectangle {
                 }
                 scrub := WaveSelectionOverlay {
                         width: parent.width; height: parent.height;
+                        context-requested(position) => { root.context-menu-requested(position); }
                         enabled: root.waveform-ready && root.selection-identity != "" && !root.busy;
                         seek-enabled: root.ready && !root.busy && !root.missing;
                         seek-clock: root.progress-clock;
@@ -1487,6 +1496,7 @@ component WorkbenchAuditionPanel inherits Rectangle {
     // 达芬奇整合：选中声音时，在播放器控制栏直接给出「导入到达芬奇时间线」。
     in property <bool> resolve-enabled: false;
     callback import-resolve();
+    callback context-menu-requested(Point);
     callback retry(); callback relink();
     /// The controller rejected typed transform input: bit 1 Pitch, bit 2 Rate.
     public function reject-input(fields: int) {
@@ -1854,6 +1864,7 @@ component WorkbenchAuditionPanel inherits Rectangle {
                     }
                     scrub := WaveSelectionOverlay {
                         width: parent.width; height: parent.height;
+                        context-requested(position) => { root.context-menu-requested(position); }
                         enabled: root.waveform-ready && root.selection-identity != "" && !root.busy;
                         seek-enabled: root.ready && !root.busy && !root.missing;
                         seek-clock: root.progress-clock;
@@ -1947,6 +1958,7 @@ export component AuditionPanel inherits Rectangle {
     // 达芬奇整合：播放器控制栏上的「导入到达芬奇时间线」按钮。
     in property <bool> resolve-enabled: false;
     callback import-resolve();
+    callback context-menu-requested(Point);
     // Inactive facades keep their shared bindings without creating input owners.
     in property <bool> active: true;
     private property <length> presenter-min-width: 0px;
@@ -2151,6 +2163,7 @@ export component AuditionPanel inherits Rectangle {
         output-settings => { root.output-settings(); }
         resolve-enabled: root.resolve-enabled;
         import-resolve => { root.import-resolve(); }
+        context-menu-requested(position) => { root.context-menu-requested(position); }
     }
     if root.active && Theme.modern-player: WorkbenchAuditionPanel {
         width: parent.width; height: parent.height;
@@ -2242,6 +2255,7 @@ export component AuditionPanel inherits Rectangle {
         relink => { root.relink(); }
         resolve-enabled: root.resolve-enabled;
         import-resolve => { root.import-resolve(); }
+        context-menu-requested(position) => { root.context-menu-requested(position); }
     }
 }
 
