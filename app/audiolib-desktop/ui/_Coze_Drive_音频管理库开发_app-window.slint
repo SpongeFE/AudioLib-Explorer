@@ -3741,6 +3741,8 @@ main-scroll := ScrollView {
             output-backend: root.output-backend; output-rate: root.output-rate; output-xruns: root.output-xruns;
             target-start: root.wave-target-start; target-end: root.wave-target-end;
             relink-enabled: !root.closing && !root.library-busy && root.has-selection;
+            resolve-enabled: root.has-selection && !root.selected-missing && !root.remote-mode;
+            import-resolve => { root.file-action-requested(root.selected-id, 22); }
             playing: root.playing; smooth-progress: root.playback-smooth; progress-clock: root.playback-clock; playback-rate: root.confirmed-playback-rate; waveform: root.waveform-image; waveform-ready: root.waveform-ready;
             name: root.playback-name; info: root.waveform-info; output: root.output-summary;
             position: root.play-position; duration: root.play-duration; time: root.play-time; end-time: root.play-end;
@@ -4627,6 +4629,8 @@ main-scroll := ScrollView {
             output-backend: root.output-backend; output-rate: root.output-rate; output-xruns: root.output-xruns;
             target-start: root.wave-target-start; target-end: root.wave-target-end;
             relink-enabled: !root.closing && !root.library-busy && root.has-selection;
+            resolve-enabled: root.has-selection && !root.selected-missing && !root.remote-mode;
+            import-resolve => { root.file-action-requested(root.selected-id, 22); }
             playing: root.playing; smooth-progress: root.playback-smooth; progress-clock: root.playback-clock; playback-rate: root.confirmed-playback-rate; waveform: root.waveform-image; waveform-ready: root.waveform-ready;
             name: root.playback-name; info: root.waveform-info; output: root.output-summary;
             position: root.play-position; duration: root.play-duration; time: root.play-time; end-time: root.play-end;
