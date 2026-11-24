@@ -67,11 +67,18 @@ jobs:
   windows:
     name: Windows x64
     needs: guard
-    runs-on: windows-latest
+    # 固定在 2022：windows-latest 已切到 VS 18 / MSVC 14.52，它的 STL 头要求
+    # clang 22+，而 soundtouch-ffi 的 bindgen 用的是构建机自带的旧 libclang，
+    # 会直接 static_assert 失败（STL1000）。
+    runs-on: windows-2022
     timeout-minutes: 120
     env:
       # 静态链接 CRT，便携包不依赖目标机器是否装了 VC++ 运行库。
       RUSTFLAGS: '-C target-feature=+crt-static'
+      # bindgen 解析 MSVC 的 STL 头时会撞上「编译器版本必须够新」的断言。
+      # 它只用来把 soundtouch 的声明翻译成 Rust 绑定，不做真正的编译，
+      # 关掉这条版本检查是安全的。
+      BINDGEN_EXTRA_CLANG_ARGS: '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH'
     steps:
       - uses: actions/checkout@v4
 
