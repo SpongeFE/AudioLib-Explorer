@@ -9,6 +9,7 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::Mutex;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -22,6 +23,49 @@ const BRIDGE_SCRIPT: &str = include_str!("resolve_bridge.py");
 /// 时如果不带这个标志，Windows 会为子进程新开一个黑框再关掉。
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// 波形区最近一次框选：文件路径 + 起止秒。UI 线程写入，桥接线程读取。
+/// 放在这里而不是改 `import_to_timeline` 的调用签名，是为了让导入入口保持
+/// 单一参数，controller 侧一行都不用动。
+static WAVE_SELECTION: Mutex<Option<(String, f64, f64)>> = Mutex::new(None);
+
+/// 记下波形区刚框好的范围，下一次导入只送这一段。
+pub fn remember_selection(path: &str, start: f64, end: f64) {
+    if !(end > start) {
+        forget_selection();
+        return;
+    }
+    let mut slot = WAVE_SELECTION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    *slot = Some((normalize_path(path), start, end));
+}
+
+/// 换文件、取消框选时清掉，避免把旧选区套到另一条记录上。
+pub fn forget_selection() {
+    let mut slot = WAVE_SELECTION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    *slot = None;
+}
+
+fn normalize_path(path: &str) -> String {
+    if cfg!(windows) {
+        path.replace('\\', "/").to_lowercase()
+    } else {
+        path.to_string()
+    }
+}
+
+/// 只有选区来源就是待导入的这个文件时才返回范围。
+fn selection_for(path: &Path) -> Option<(f64, f64)> {
+    let slot = WAVE_SELECTION.lock().ok()?;
+    let (remembered, start, end) = slot.as_ref()?;
+    if *remembered != normalize_path(path.to_string_lossy().as_ref()) {
+        return None;
+    }
+    Some((*start, *end))
+}
 
 /// 把 `path` 指向的音频插入 Resolve 当前时间线的播放头。
 ///
@@ -46,6 +90,10 @@ pub fn import_to_timeline(path: &Path) -> Result<String, String> {
 
     let mut command = Command::new(&python[0]);
     command.args(&python[1..]).arg(&script_path).arg(path);
+    // 有选区就多传两个参数：选区起点和终点（秒）。
+    if let Some((start, end)) = selection_for(path) {
+        command.arg(format!("{start:.6}")).arg(format!("{end:.6}"));
+    }
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
 
