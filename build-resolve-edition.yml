@@ -1,0 +1,246 @@
+name: Build Resolve Edition
+
+# 「达芬奇整合版」专用构建流程，和上游的 ci.yml / release.yml 互不影响。
+# 在 GitHub 页面点 Run workflow 即可产出 Windows 和 macOS 安装包。
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  RUST_BACKTRACE: '1'
+
+jobs:
+  # 两端共用的前置校验：确认达芬奇功能真的在源码里，避免打出一个没功能的包。
+  guard:
+    name: 校验整合改动
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查关键改动是否在位
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          grep -q 'action == 22' app/audiolib-desktop/src/controller.rs \
+            || fail 'controller.rs 缺少 action == 22 分支'
+          grep -q 'fn import_to_resolve' app/audiolib-desktop/src/controller.rs \
+            || fail 'controller.rs 缺少 import_to_resolve'
+          grep -q 'mod resolve_bridge;' app/audiolib-desktop/src/main.rs \
+            || fail 'main.rs 没有声明 resolve_bridge 模块'
+          grep -q '导入到达芬奇时间线' app/audiolib-desktop/ui/app-window.slint \
+            || fail 'app-window.slint 缺少菜单项或详情页按钮'
+          grep -q 'file-action(22)' app/audiolib-desktop/ui/app-window.slint \
+            || fail 'app-window.slint 没有触发 action 22'
+          grep -q 'apply_update_policy(ui, &client, true)' app/audiolib-desktop/src/updates.rs \
+            || fail 'updates.rs 没有关闭自动更新'
+          test -f app/audiolib-desktop/src/resolve_bridge.py \
+            || fail '缺少内嵌的 resolve_bridge.py'
+          # 这两个串用来确认「改过的文件真的替换上去了」，否则会白跑 40 分钟。
+          grep -q 'api_call' app/audiolib-desktop/src/resolve_bridge.py \
+            || fail 'resolve_bridge.py 还是旧版：缺少 api_call 兼容层'
+          grep -q 'range_start' app/audiolib-desktop/src/resolve_bridge.py \
+            || fail 'resolve_bridge.py 还是旧版：缺少选区裁切'
+          grep -q 'remember_selection' app/audiolib-desktop/src/waveform_selection.rs \
+            || fail 'waveform_selection.rs 还是旧版：缺少选区记忆'
+          grep -q 'selection_for' app/audiolib-desktop/src/resolve_bridge.rs \
+            || fail 'resolve_bridge.rs 还是旧版：缺少选区传参'
+          grep -q 'resolve-enabled' app/audiolib-desktop/ui/audition-panel.slint \
+            || fail 'audition-panel.slint 还是旧版：缺少播放器栏的达芬奇按钮'
+          test -f RESOLVE_EDITION_README.txt \
+            || fail '缺少整合版说明文件'
+
+          # 图片素材模块。这几个串只要缺一个，说明源码没同步完整，
+          # 与其编译 40 分钟后才报错，不如这里就停。
+          test -f crates/audiolib-db/src/media.rs \
+            || fail '缺少素材数据层 media.rs'
+          test -f crates/audiolib-db/src/media_scan.rs \
+            || fail '缺少素材扫描 media_scan.rs'
+          grep -q 'mod media_scan;' crates/audiolib-db/src/lib.rs \
+            || fail 'lib.rs 没有声明 media_scan 模块'
+          grep -q 'media::ensure_schema' crates/audiolib-db/src/lib.rs \
+            || fail 'lib.rs 打开库时没有补建素材表'
+          grep -q 'webp' app/audiolib-desktop/Cargo.toml \
+            || fail 'desktop 没有启用 webp 解码'
+          grep -q 'MediaAction' app/audiolib-cli/src/main.rs \
+            || fail 'CLI 缺少素材命令'
+
+          python3 -m py_compile app/audiolib-desktop/src/resolve_bridge.py \
+            || fail 'resolve_bridge.py 语法错误'
+
+          echo "整合改动全部在位"
+
+  windows:
+    name: Windows x64
+    needs: guard
+    # 固定在 2022：windows-latest 已切到 VS 18 / MSVC 14.52，它的 STL 头要求
+    # clang 22+，而 soundtouch-ffi 的 bindgen 用的是构建机自带的旧 libclang，
+    # 会直接 static_assert 失败（STL1000）。
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      # 静态链接 CRT，便携包不依赖目标机器是否装了 VC++ 运行库。
+      RUSTFLAGS: '-C target-feature=+crt-static'
+      # bindgen 解析 MSVC 的 STL 头时会撞上「编译器版本必须够新」的断言。
+      # 它只用来把 soundtouch 的声明翻译成 Rust 绑定，不做真正的编译，
+      # 关掉这条版本检查是安全的。
+      BINDGEN_EXTRA_CLANG_ARGS: '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH'
+    steps:
+      - uses: actions/checkout@v4
+
+      # 上游 .cargo/config.toml 把默认 target 写死成 x86_64-pc-windows-msvc。
+      # 在这台机器上产物会落到 target/<triple>/release/，而打包步骤读的是
+      # target/release/，于是 cp 找不到 exe。去掉这行即可回到原生 target。
+      - name: 使用本机原生 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i.bak '/^target = "x86_64-pc-windows-msvc"$/d' .cargo/config.toml
+          ! grep -q '^target = ' .cargo/config.toml
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.97.1'
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-resolve-edition
+
+      - name: 编译桌面端与命令行
+        run: cargo build --release --locked -p audiolib-desktop -p audiolib-cli --bins
+
+      - name: 组装便携包
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="AudioLibExplorer-Resolve-win-x64"
+          STAGE="dist/$NAME"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/config"
+
+          cp target/release/AudioLibExplorer.exe "$STAGE/"
+          cp target/release/AudioLibCli.exe "$STAGE/"
+          cp -r resources "$STAGE/"
+          cp config/rust_settings.example.json "$STAGE/config/" || true
+          for f in README.md README.zh-CN.md LICENSE THIRD_PARTY.md PORTABLE_README.md RESOLVE_EDITION_README.txt; do
+            [ -f "$f" ] && cp "$f" "$STAGE/"
+          done
+          cp tools/Start-AudioLibExplorer.cmd "$STAGE/" || true
+
+          # 通道标记照写；程序内部已永久关闭更新检查，
+          # 官方发布包不会覆盖掉达芬奇功能。
+          echo 'stable' > "$STAGE/update-channel.txt"
+          echo '1.0.2' > "$STAGE/update-version.txt"
+
+          cd dist
+          7z a -tzip "$NAME.zip" "$NAME" > /dev/null
+          ls -lh "$NAME.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AudioLibExplorer-Resolve-win-x64
+          path: dist/AudioLibExplorer-Resolve-win-x64.zip
+          retention-days: 30
+
+  macos:
+    name: macOS arm64
+    needs: guard
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      # 上游 .cargo/config.toml 默认 target 是 x86_64-pc-windows-msvc。
+      # 在 macOS 上这会变成没有 std 的交叉编译，报 can't find crate for `core`。
+      # 去掉这行，让 macOS 按本机 aarch64-apple-darwin 原生编译。
+      - name: 使用本机原生 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i.bak '/^target = "x86_64-pc-windows-msvc"$/d' .cargo/config.toml
+          ! grep -q '^target = ' .cargo/config.toml
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.97.1'
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-resolve-edition
+
+      - name: 编译桌面端与命令行
+        run: cargo build --release --locked -p audiolib-desktop -p audiolib-cli --bins
+
+      - name: 组装 .app 包
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="AudioLibExplorer-Resolve-macos-arm64"
+          BUNDLE="AudioLib Explorer.app"
+          STAGE="dist/$NAME"
+          RES="$STAGE/$BUNDLE/Contents/Resources"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/$BUNDLE/Contents/MacOS" "$RES/config"
+
+          cp target/release/AudioLibExplorer "$STAGE/$BUNDLE/Contents/MacOS/"
+          cp target/release/AudioLibCli "$STAGE/$BUNDLE/Contents/MacOS/"
+          chmod 755 "$STAGE/$BUNDLE/Contents/MacOS/"*
+
+          cp -r resources "$RES/"
+          cp resources/icons/AudioLibExplorer.icns "$RES/" || true
+          cp config/rust_settings.example.json "$RES/config/" || true
+          for f in MACOS_README.md README.md README.zh-CN.md LICENSE THIRD_PARTY.md RESOLVE_EDITION_README.txt; do
+            [ -f "$f" ] && cp "$f" "$RES/"
+          done
+          echo 'stable' > "$RES/update-channel.txt"
+          echo '1.0.2' > "$RES/update-version.txt"
+
+          cp packaging/macos/Info.plist "$STAGE/$BUNDLE/Contents/Info.plist"
+          plutil -lint "$STAGE/$BUNDLE/Contents/Info.plist"
+
+          # ad-hoc 签名，让系统认这个包结构完整；未做 Apple 公证。
+          codesign --force --sign - "$STAGE/$BUNDLE/Contents/MacOS/AudioLibCli"
+          codesign --force --deep --sign - "$STAGE/$BUNDLE"
+          codesign --verify --deep --strict "$STAGE/$BUNDLE"
+
+          # .app 在 dist/$NAME/ 里面，不在 dist/ 根下，所以先切到 $STAGE 再打包。
+          cd "$STAGE"
+          COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$BUNDLE" "../$NAME.zip"
+          ls -lh "../$NAME.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AudioLibExplorer-Resolve-macos-arm64
+          path: dist/AudioLibExplorer-Resolve-macos-arm64.zip
+          retention-days: 30
+
+  # 打 tag 时顺手建 Release，方便直接下载，不用登录 GitHub 翻 Artifacts。
+  publish:
+    name: 发布 Release
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          draft: false
+          generate_release_notes: false
+          body_path: RESOLVE_EDITION_README.txt
