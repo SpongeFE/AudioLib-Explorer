@@ -299,6 +299,20 @@ def main():
         print("音频文件不存在：" + audio_path)
         return 2
 
+    # 波形区框选过一段时，会多传两个参数：选区起点和终点（秒）。
+    range_start = None
+    range_end = None
+    if len(sys.argv) >= 4:
+        try:
+            range_start = float(sys.argv[2])
+            range_end = float(sys.argv[3])
+        except ValueError:
+            range_start = None
+            range_end = None
+        if range_start is not None and range_end is not None and range_end <= range_start:
+            range_start = None
+            range_end = None
+
     problem = configure_resolve_environment()
     if problem:
         print(problem)
@@ -358,6 +372,17 @@ def main():
     start, end = clip_span(item, fps)
     length = max(1, end - start)
 
+    # 有选区就只把这一段放进时间线。startFrame/endFrame 是源素材的入出点，
+    # 达芬奇自己按帧裁切，不需要另外生成临时 WAV。
+    trimmed = range_start is not None and range_end is not None
+    if trimmed:
+        clip_start = start + int(round(range_start * fps))
+        clip_end = start + int(round(range_end * fps))
+        clip_start = max(start, min(clip_start, end - 1))
+        clip_end = max(clip_start + 1, min(clip_end, end))
+        start, end = clip_start, clip_end
+        length = max(1, end - start)
+
     track_index, created = pick_target_track(timeline, playhead, playhead + length)
 
     placed = api_call(media_pool, "AppendToTimeline", [{
@@ -373,6 +398,8 @@ def main():
         return 1
 
     name = api_call(item, "GetName") or os.path.basename(audio_path)
+    if trimmed:
+        name = "%s（%.3f–%.3f 秒）" % (name, range_start, range_end)
     landed = None
     try:
         landed = placed[0].GetStart()
