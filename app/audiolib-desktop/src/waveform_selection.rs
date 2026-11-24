@@ -391,6 +391,7 @@ impl Controller {
         self.slice_render_jobs.clear_pending();
         self.wave_selection_gesture.store(false, Ordering::Release);
         selection_ui_clear(ui);
+        crate::resolve_bridge::forget_selection();
         ui.set_wave_selection_identity(source.key.clone().into());
         self.command(AudioCommand::ClearRange);
         true
@@ -562,6 +563,12 @@ impl Controller {
         ui.set_wave_selection_active(true);
         ui.set_wave_selection_start(range.start_seconds() as f32);
         ui.set_wave_selection_end(range.end_seconds() as f32);
+        // 记下这段范围，点「导入到达芬奇」时只送这一段。
+        crate::resolve_bridge::remember_selection(
+            &selection.source.file.file_path,
+            range.start_seconds(),
+            range.end_seconds(),
+        );
         show_export_feedback(&ui, ExportFeedback::Preparing);
         ui.set_wave_selection_progress(
             if self.chinese.load(Ordering::Acquire) {
@@ -921,6 +928,7 @@ impl Controller {
         drop(state);
         self.slice_preview_jobs.clear_pending();
         self.slice_render_jobs.clear_pending();
+        crate::resolve_bridge::forget_selection();
         self.command(AudioCommand::ClearRange);
         if let Some(ui) = self.ui.upgrade() {
             selection_ui_clear(&ui);
