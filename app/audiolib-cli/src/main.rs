@@ -334,6 +334,29 @@ enum RemoteCommand {
         #[arg(long)]
         url: Option<String>,
     },
+    /// 本地图片素材：扫描入库、列出、统计。
+    Media {
+        #[command(subcommand)]
+        action: MediaAction,
+    },
+}
+#[derive(Subcommand)]
+enum MediaAction {
+    /// 扫描一个目录下的图片（png/jpg/webp/gif）并入库。
+    Scan { path: PathBuf },
+    /// 列出已入库的素材。
+    List {
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+        #[arg(long, default_value_t = 0)]
+        offset: u32,
+        #[arg(long, default_value = "")]
+        keyword: String,
+        #[arg(long)]
+        favorites: bool,
+    },
+    /// 输出素材库统计。
+    Stats,
 }
 #[derive(Clone, Copy, ValueEnum)]
 enum HistoryKind {
@@ -375,6 +398,73 @@ enum DbCommand {
         #[arg(long)]
         if_needed: bool,
     },
+}
+
+/// 图片素材相关命令。和音频命令一样按 JSON 输出，方便脚本和测试直接断言。
+fn media_operation(
+    config: &AppConfig,
+    database: &Option<PathBuf>,
+    action: &MediaAction,
+) -> anyhow::Result<Value> {
+    let provider = open_provider(config, database)?;
+    match action {
+        MediaAction::Scan { path } => {
+            let report = provider.media_scan(path, &AtomicBool::new(false), |_| {})?;
+            Ok(json!({
+                "success": true,
+                "visited": report.visited,
+                "inserted": report.inserted,
+                "updated": report.updated,
+                "unchanged": report.unchanged,
+                "unreadable": report.unreadable,
+                "missing": report.missing,
+            }))
+        }
+        MediaAction::List {
+            limit,
+            offset,
+            keyword,
+            favorites,
+        } => {
+            let query = audiolib_db::MediaQuery {
+                keyword: (!keyword.trim().is_empty()).then(|| keyword.clone()),
+                favorites_only: *favorites,
+                limit: *limit,
+                offset: *offset,
+                ..Default::default()
+            };
+            let total = provider.media_count(&query)?;
+            let rows = provider.media_list(&query)?;
+            let items: Vec<Value> = rows
+                .iter()
+                .map(|asset| {
+                    json!({
+                        "id": asset.id,
+                        "path": asset.file_path,
+                        "name": asset.filename,
+                        "width": asset.width,
+                        "height": asset.height,
+                        "size": asset.file_size,
+                        "favorite": asset.favorite,
+                        "tags": asset.tags,
+                    })
+                })
+                .collect();
+            Ok(json!({"success": true, "total": total, "items": items}))
+        }
+        MediaAction::Stats => {
+            let stats = provider.media_stats()?;
+            Ok(json!({
+                "success": true,
+                "total": stats.total,
+                "images": stats.images,
+                "favorites": stats.favorites,
+                "missing": stats.missing,
+                "thumbs_ready": stats.thumbs_ready,
+                "total_bytes": stats.total_bytes,
+            }))
+        }
+    }
 }
 
 fn open_provider(
@@ -562,6 +652,9 @@ fn operation(args: &Arguments) -> anyhow::Result<Value> {
         _ => {}
     }
     let mut config = AppConfig::load_default()?;
+    if let Command::Media { action } = &args.command {
+        return media_operation(&config, &args.database, action);
+    }
     if let Command::Remote { command } = &args.command {
         return remote_operation(&config, command);
     }
