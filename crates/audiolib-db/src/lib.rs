@@ -13,6 +13,8 @@ mod import_lease;
 mod list_waveforms;
 pub mod local_play_history;
 mod management;
+mod media;
+mod media_scan;
 #[cfg(test)]
 mod metadata_plain_tests;
 pub(crate) mod metadata_storage;
@@ -48,6 +50,11 @@ mod sqlite_mmap;
 pub mod vendor_import;
 mod wal;
 pub use wal::CheckpointStage;
+pub use media::{
+    MediaAsset, MediaCandidate, MediaKind, MediaQuery, MediaSort, MediaStats, MediaUpsert,
+    ThumbState,
+};
+pub use media_scan::{IMAGE_EXTENSIONS, MediaScanProgress, MediaScanReport, is_supported_image};
 mod waveforms_db;
 
 #[cfg(feature = "scanner")]
@@ -696,6 +703,8 @@ impl SqliteProvider {
         )
         .map_err(db_error)?;
         conn.pragma_update(None, "mmap_size", 0).map_err(db_error)?;
+        // 素材表与音频 schema 版本解耦，这里幂等补建，老库打开即获得。
+        media::ensure_schema(&conn)?;
         let tokenizer = load_tokenizer();
         schema::register_tokenizer(&conn, tokenizer.clone())?;
         let derived = schema::source_tags_ready(&conn)?;
