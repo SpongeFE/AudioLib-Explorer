@@ -48,6 +48,12 @@ jobs:
           # 这两个串用来确认「改过的文件真的替换上去了」，否则会白跑 40 分钟。
           grep -q 'api_call' app/audiolib-desktop/src/resolve_bridge.py \
             || fail 'resolve_bridge.py 还是旧版：缺少 api_call 兼容层'
+          grep -q 'range_start' app/audiolib-desktop/src/resolve_bridge.py \
+            || fail 'resolve_bridge.py 还是旧版：缺少选区裁切'
+          grep -q 'remember_selection' app/audiolib-desktop/src/waveform_selection.rs \
+            || fail 'waveform_selection.rs 还是旧版：缺少选区记忆'
+          grep -q 'selection_for' app/audiolib-desktop/src/resolve_bridge.rs \
+            || fail 'resolve_bridge.rs 还是旧版：缺少选区传参'
           grep -q 'resolve-enabled' app/audiolib-desktop/ui/audition-panel.slint \
             || fail 'audition-panel.slint 还是旧版：缺少播放器栏的达芬奇按钮'
           test -f RESOLVE_EDITION_README.txt \
