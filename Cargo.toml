@@ -1,51 +1,59 @@
-[package]
-name = "audiolib-desktop"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-build = "build.rs"
+[workspace]
+resolver = "2"
+members = ["crates/audiolib-core", "crates/audiolib-ai", "crates/audiolib-db", "crates/audiolib-audio", "crates/audiolib-windows", "crates/audiolib-ipc", "app/audiolib-desktop", "app/audiolib-cli", "crates/audiolib-remote", "crates/audiolib-update", "server/audiolib-server"]
+exclude = ["vendor/libsqlite3-sys"]
 
-[[bin]]
-name = "AudioLibExplorer"
-path = "src/main.rs"
+[workspace.package]
+version = "1.0.2"
+edition = "2024"
+rust-version = "1.97"
+license = "GPL-3.0-only"
 
-[features]
-default = []
-asio = ["audiolib-audio/asio"]
+[workspace.dependencies]
+anyhow = "1.0"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "=0.40.2", features = ["bundled", "backup", "chrono"] }
+slint = { version = "=1.17.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-2", "unstable-winit-030"] }
+slint-build = "=1.17.1"
+cpal = { version = "=0.18.2" }
+symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "adpcm", "flac", "ogg", "vorbis", "mp3"] }
+rubato = { version = "=5.0.1" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+tempfile = "3"
+icu_casemap = "=2.3.0"
+# audiolib-remote (server-mode client; rustls keeps OpenSSL out of Windows/macOS builds)
+ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
+# TLS roots: the OS trust store through rustls-platform-verifier (same rustls/ring as ureq).
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+rustls-platform-verifier = "0.7"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+# audiolib-server (LAN HTTP API, see doc/api/README.md)
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "timeout"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-core = "0.3"
+http-body-util = "0.1"
+toml = "1"
+uuid = { version = "1", features = ["v4"] }
+semver = "1"
+sha2 = "0.10"
+flate2 = "=1.1.10"
 
-[dependencies]
-anyhow.workspace = true
-audiolib-core = { path = "../../crates/audiolib-core" }
-audiolib-ai = { path = "../../crates/audiolib-ai" }
-audiolib-db = { path = "../../crates/audiolib-db" }
-audiolib-audio = { path = "../../crates/audiolib-audio", features = ["playback"] }
-audiolib-ipc = { path = "../../crates/audiolib-ipc" }
-audiolib-windows = { path = "../../crates/audiolib-windows" }
-audiolib-remote = { path = "../../crates/audiolib-remote" }
-audiolib-update = { path = "../../crates/audiolib-update" }
-chrono.workspace = true
-serde_json.workspace = true
-slint.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-tracing-appender.workspace = true
-tempfile.workspace = true
-image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# Pin the engine containing the contentless-delete statistics fix. The released
+# libsqlite3-sys 0.38.2 still bundles 3.53.2; this reviewed vendor uses 3.54.1.
+[patch.crates-io]
+libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
 
-[build-dependencies]
-slint-build.workspace = true
-winresource = "=0.1.31"
-
-[dev-dependencies]
-i-slint-backend-testing = { version = "=1.17.1", features = ["renderer-software"] }
-rusqlite.workspace = true
-
-# Icon wiring for a future native macOS bundle; Windows uses build.rs.
-# This metadata does not imply that the desktop has been validated on macOS.
-[package.metadata.bundle]
-name = "AudioLib Explorer"
-identifier = "io.github.freedragonlancer.audiolib-explorer"
-icon = ["../../resources/icons/AudioLibExplorer.icns"]
-category = "Music"
-short_description = "Audio sample library manager"
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
