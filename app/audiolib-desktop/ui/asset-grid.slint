@@ -81,6 +81,11 @@ export component AssetGrid inherits Rectangle {
 
     background: Theme.bg;
 
+    // 顶栏和网格区都用绝对定位，不交给 VerticalLayout 分配。
+    // layout 会按子元素的 preferred 尺寸算高度，而绝对定位的子元素
+    // preferred 是 0，最后算出来的可视区高度不对，滚动就没有余量。
+    private property <length> bar-height: 44px * Theme.ui-scale;
+
     // 列数固定按档位给，格子宽度反过来由宽度算出。
     // 这样全程只用整数和 length 运算，不出现 float 转 int。
     private property <int> columns: root.cell-size == 0 ? 8 : (root.cell-size == 2 ? 4 : 6);
@@ -90,166 +95,172 @@ export component AssetGrid inherits Rectangle {
     private property <length> cell-width: (root.usable-width - root.cell-gap * (root.columns - 1)) / root.columns;
     private property <length> cell-height: root.cell-width * 0.75 + 34px * Theme.ui-scale;
     private property <int> grid-rows: max(1, (root.cells.length + root.columns - 1) / root.columns);
+    private property <length> grid-height: root.edge-padding * 2 + root.grid-rows * (root.cell-height + root.cell-gap);
 
-    VerticalLayout {
-        // ── 顶栏 ────────────────────────────────────────────────────────
-        Rectangle {
-            height: 44px * Theme.ui-scale;
-            background: Theme.panel;
+    // ── 顶栏 ────────────────────────────────────────────────────────
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.bar-height;
+        background: Theme.panel;
 
-            HorizontalLayout {
-                padding-left: root.edge-padding;
-                padding-right: root.edge-padding;
-                spacing: 10px * Theme.ui-scale;
+        HorizontalLayout {
+            padding-left: root.edge-padding;
+            padding-right: root.edge-padding;
+            spacing: 10px * Theme.ui-scale;
 
-                Text {
-                    text: root.chinese ? "图片素材" : "Images";
-                    color: Theme.ink;
-                    font-size: Theme.font(14);
-                    vertical-alignment: center;
-                }
-
-                Text {
-                    text: root.count-text;
-                    color: Theme.dim;
-                    font-size: Theme.font(11);
-                    vertical-alignment: center;
-                }
-
-                Rectangle {
-                    width: 1px;
-                    background: Theme.border;
-                }
-
-                Text {
-                    text: root.chinese ? "尺寸" : "Size";
-                    color: Theme.muted;
-                    font-size: Theme.font(11);
-                    vertical-alignment: center;
-                }
-
-                SizeTab {
-                    label: "S";
-                    active: root.cell-size == 0;
-                    clicked => { root.cell-size = 0; }
-                }
-                SizeTab {
-                    label: "M";
-                    active: root.cell-size == 1;
-                    clicked => { root.cell-size = 1; }
-                }
-                SizeTab {
-                    label: "L";
-                    active: root.cell-size == 2;
-                    clicked => { root.cell-size = 2; }
-                }
-
-                Rectangle {
-                    horizontal-stretch: 1;
-                }
-
-                BarButton {
-                    label: root.chinese ? "关闭" : "Close";
-                    clicked => { root.close-requested(); }
-                }
-            }
-        }
-
-        // ── 网格 ────────────────────────────────────────────────────────
-        Rectangle {
-            // 顶栏占 44px，剩下全部给网格。没有 stretch 的话 VerticalLayout
-            // 会按 ScrollView 的内容高度撑开，整块溢出窗口且滚不动。
-            vertical-stretch: 1;
-            background: Theme.bg;
-
-            if root.cells.length == 0: Text {
-                width: parent.width;
-                height: parent.height;
-                text: root.chinese
-                    ? "还没有图片。用命令行的 media scan 扫一个目录进来。"
-                    : "No images yet. Import a folder with the media scan command.";
-                color: Theme.muted;
-                font-size: Theme.font(12);
-                horizontal-alignment: center;
+            Text {
+                text: root.chinese ? "图片素材" : "Images";
+                color: Theme.ink;
+                font-size: Theme.font(14);
                 vertical-alignment: center;
             }
 
-            if root.cells.length > 0: ScrollView {
-                // Rectangle 的子元素是绝对定位，不写死宽高的话 ScrollView 会
-                // 用自己的 preferred 高度（等于全部内容高度），于是没有可滚的余量。
-                x: 0px;
-                y: 0px;
-                width: parent.width;
-                height: parent.height;
-                vertical-scrollbar-policy: as-needed;
-                horizontal-scrollbar-policy: always-off;
+            Text {
+                text: root.count-text;
+                color: Theme.dim;
+                font-size: Theme.font(11);
+                vertical-alignment: center;
+            }
 
-                Rectangle {
-                    width: root.width;
-                    height: root.edge-padding * 2 + root.grid-rows * (root.cell-height + root.cell-gap);
+            Rectangle {
+                width: 1px;
+                background: Theme.border;
+            }
 
-                    for cell[index] in root.cells: Rectangle {
-                        // Slint 没有 % 运算符，取模要用 Math.mod。
-                        x: root.edge-padding + Math.mod(index, root.columns) * (root.cell-width + root.cell-gap);
-                        y: root.edge-padding + ((index - Math.mod(index, root.columns)) / root.columns) * (root.cell-height + root.cell-gap);
-                        width: root.cell-width;
-                        height: root.cell-height;
-                        border-radius: 5px * Theme.ui-scale;
-                        border-width: 1px;
-                        border-color: Theme.border;
+            Text {
+                text: root.chinese ? "尺寸" : "Size";
+                color: Theme.muted;
+                font-size: Theme.font(11);
+                vertical-alignment: center;
+            }
 
-                        cell-touch := TouchArea {
-                            double-clicked => { root.open-folder(cell.path); }
-                        }
+            SizeTab {
+                label: "S";
+                active: root.cell-size == 0;
+                clicked => { root.cell-size = 0; }
+            }
+            SizeTab {
+                label: "M";
+                active: root.cell-size == 1;
+                clicked => { root.cell-size = 1; }
+            }
+            SizeTab {
+                label: "L";
+                active: root.cell-size == 2;
+                clicked => { root.cell-size = 2; }
+            }
 
-                        background: cell-touch.has-hover ? Theme.hover : Theme.panel;
+            Rectangle {
+                horizontal-stretch: 1;
+            }
 
-                        VerticalLayout {
-                            padding: 5px * Theme.ui-scale;
-                            spacing: 4px * Theme.ui-scale;
+            BarButton {
+                label: root.chinese ? "关闭" : "Close";
+                clicked => { root.close-requested(); }
+            }
+        }
+    }
 
-                            // 缩略图位。下一批换成 Image，加载缓存里的小图。
-                            Rectangle {
-                                vertical-stretch: 1;
-                                border-radius: 3px * Theme.ui-scale;
-                                background: Theme.trough;
+    // ── 网格 ────────────────────────────────────────────────────────
+    Rectangle {
+        x: 0px;
+        y: root.bar-height;
+        width: root.width;
+        height: max(0px, root.height - root.bar-height);
+        background: Theme.bg;
 
-                                Text {
-                                    text: cell.format;
-                                    color: Theme.segment;
-                                    font-size: Theme.font(11);
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-                            }
+        if root.cells.length == 0: Text {
+            width: parent.width;
+            height: parent.height;
+            text: root.chinese
+                ? "还没有图片。用命令行的 media scan 扫一个目录进来。"
+                : "No images yet. Import a folder with the media scan command.";
+            color: Theme.muted;
+            font-size: Theme.font(12);
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        if root.cells.length > 0: ScrollView {
+            // 滚动容器必须同时给出「可视区尺寸」和「内容尺寸」。
+            // 只给子元素 height 是不够的：绝对定位的子元素不参与 preferred
+            // 计算，viewport-height 会被算成 0，于是没有可滚的余量。
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            viewport-width: root.width;
+            viewport-height: root.grid-height;
+            vertical-scrollbar-policy: as-needed;
+            horizontal-scrollbar-policy: always-off;
+
+            Rectangle {
+                width: root.width;
+                height: root.grid-height;
+
+                for cell[index] in root.cells: Rectangle {
+                    // Slint 没有 % 运算符，取模要用 Math.mod。
+                    x: root.edge-padding + Math.mod(index, root.columns) * (root.cell-width + root.cell-gap);
+                    y: root.edge-padding + ((index - Math.mod(index, root.columns)) / root.columns) * (root.cell-height + root.cell-gap);
+                    width: root.cell-width;
+                    height: root.cell-height;
+                    border-radius: 5px * Theme.ui-scale;
+                    border-width: 1px;
+                    border-color: Theme.border;
+
+                    cell-touch := TouchArea {
+                        double-clicked => { root.open-folder(cell.path); }
+                    }
+
+                    background: cell-touch.has-hover ? Theme.hover : Theme.panel;
+
+                    VerticalLayout {
+                        padding: 5px * Theme.ui-scale;
+                        spacing: 4px * Theme.ui-scale;
+
+                        // 缩略图位。下一批换成 Image，加载缓存里的小图。
+                        Rectangle {
+                            vertical-stretch: 1;
+                            border-radius: 3px * Theme.ui-scale;
+                            background: Theme.trough;
 
                             Text {
-                                height: 13px * Theme.ui-scale;
-                                text: cell.name;
-                                color: Theme.ink;
+                                text: cell.format;
+                                color: Theme.segment;
                                 font-size: Theme.font(11);
-                                overflow: elide;
-                                vertical-alignment: center;
-                            }
-
-                            Text {
-                                height: 11px * Theme.ui-scale;
-                                text: cell.detail;
-                                color: Theme.muted;
-                                font-size: Theme.font(10);
-                                overflow: elide;
+                                horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
                         }
 
-                        if cell.favorite: Text {
-                            x: 4px * Theme.ui-scale;
-                            y: 4px * Theme.ui-scale;
-                            width: 14px * Theme.ui-scale;
-                            text: "★";
-                            color: Theme.apricot;
+                        Text {
+                            height: 13px * Theme.ui-scale;
+                            text: cell.name;
+                            color: Theme.ink;
                             font-size: Theme.font(11);
+                            overflow: elide;
+                            vertical-alignment: center;
                         }
+
+                        Text {
+                            height: 11px * Theme.ui-scale;
+                            text: cell.detail;
+                            color: Theme.muted;
+                            font-size: Theme.font(10);
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if cell.favorite: Text {
+                        x: 4px * Theme.ui-scale;
+                        y: 4px * Theme.ui-scale;
+                        width: 14px * Theme.ui-scale;
+                        text: "★";
+                        color: Theme.apricot;
+                        font-size: Theme.font(11);
                     }
                 }
             }
