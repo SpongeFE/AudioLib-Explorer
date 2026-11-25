@@ -253,6 +253,11 @@ enum Command {
     Volume {
         value: f32,
     },
+    /// 本地图片素材：扫描入库、列出、统计。
+    Media {
+        #[command(subcommand)]
+        action: MediaAction,
+    },
 }
 #[derive(Subcommand)]
 enum RemoteCommand {
@@ -333,11 +338,6 @@ enum RemoteCommand {
         offset: usize,
         #[arg(long)]
         url: Option<String>,
-    },
-    /// 本地图片素材：扫描入库、列出、统计。
-    Media {
-        #[command(subcommand)]
-        action: MediaAction,
     },
 }
 #[derive(Subcommand)]
