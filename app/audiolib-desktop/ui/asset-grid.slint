@@ -1,0 +1,248 @@
+// app/audiolib-desktop/ui/asset-grid.slint
+// 图片素材网格。作为整窗浮层挂在 AppWindow 的最外层，不参与音频列表的布局，
+// 所以开关它不会动到 586 KB 的 app-window.slint 里的任何既有排版。
+//
+// 这一版只画格子不画图：缩略图要解码原图（目录里有 53 MB 的 gif），必须先在
+// Rust 侧生成小图缓存，再由 Image 加载缓存文件。先让格子跑起来，图下一批接。
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+/// 网格里的一格。尺寸、大小、格式都在 Rust 侧拼成字符串，
+/// UI 线程只负责摆放，不做格式化。
+export struct AssetCell {
+    id: int,
+    name: string,
+    path: string,
+    detail: string,
+    format: string,
+    favorite: bool,
+}
+
+/// 三档尺寸里的一档。
+component SizeTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+
+    width: 28px * Theme.ui-scale;
+    height: 22px * Theme.ui-scale;
+    border-radius: 4px * Theme.ui-scale;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    background: root.active ? Theme.accent : (touch.has-hover ? Theme.hover : Theme.raised);
+
+    Text {
+        text: root.label;
+        color: root.active ? Theme.on-accent : Theme.dim;
+        font-size: Theme.font(11);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// 顶栏上的普通按钮。
+component BarButton inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+
+    height: 22px * Theme.ui-scale;
+    border-radius: 4px * Theme.ui-scale;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    label-text := Text {
+        text: root.label;
+        color: Theme.ink;
+        font-size: Theme.font(11);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    width: max(26px * Theme.ui-scale, label-text.preferred-width + 16px * Theme.ui-scale);
+    background: touch.has-hover ? Theme.hover : Theme.raised;
+}
+
+export component AssetGrid inherits Rectangle {
+    in property <[AssetCell]> cells;
+    in property <bool> chinese;
+    /// 数量文案（"113 项" / "113 items"）。Slint 没有数字转字符串，
+    /// 交给 Rust 侧拼好再传进来。
+    in property <string> count-text;
+    /// 0 = 小, 1 = 中, 2 = 大。
+    in-out property <int> cell-size: 1;
+    callback close-requested();
+    callback open-folder(string);
+
+    background: Theme.bg;
+
+    // 列数固定按档位给，格子宽度反过来由宽度算出。
+    // 这样全程只用整数和 length 运算，不出现 float 转 int。
+    private property <int> columns: root.cell-size == 0 ? 8 : (root.cell-size == 2 ? 4 : 6);
+    private property <length> cell-gap: 8px * Theme.ui-scale;
+    private property <length> edge-padding: 12px * Theme.ui-scale;
+    private property <length> usable-width: max(1px, root.width - root.edge-padding * 2);
+    private property <length> cell-width: (root.usable-width - root.cell-gap * (root.columns - 1)) / root.columns;
+    private property <length> cell-height: root.cell-width * 0.75 + 34px * Theme.ui-scale;
+    private property <int> grid-rows: max(1, (root.cells.length + root.columns - 1) / root.columns);
+
+    VerticalLayout {
+        // ── 顶栏 ────────────────────────────────────────────────────────
+        Rectangle {
+            height: 44px * Theme.ui-scale;
+            background: Theme.panel;
+
+            HorizontalLayout {
+                padding-left: root.edge-padding;
+                padding-right: root.edge-padding;
+                spacing: 10px * Theme.ui-scale;
+
+                Text {
+                    text: root.chinese ? "图片素材" : "Images";
+                    color: Theme.ink;
+                    font-size: Theme.font(14);
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.count-text;
+                    color: Theme.dim;
+                    font-size: Theme.font(11);
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    width: 1px;
+                    background: Theme.border;
+                }
+
+                Text {
+                    text: root.chinese ? "尺寸" : "Size";
+                    color: Theme.muted;
+                    font-size: Theme.font(11);
+                    vertical-alignment: center;
+                }
+
+                SizeTab {
+                    label: "S";
+                    active: root.cell-size == 0;
+                    clicked => { root.cell-size = 0; }
+                }
+                SizeTab {
+                    label: "M";
+                    active: root.cell-size == 1;
+                    clicked => { root.cell-size = 1; }
+                }
+                SizeTab {
+                    label: "L";
+                    active: root.cell-size == 2;
+                    clicked => { root.cell-size = 2; }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                BarButton {
+                    label: root.chinese ? "关闭" : "Close";
+                    clicked => { root.close-requested(); }
+                }
+            }
+        }
+
+        // ── 网格 ────────────────────────────────────────────────────────
+        Rectangle {
+            background: Theme.bg;
+
+            if root.cells.length == 0: Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.chinese
+                    ? "还没有图片。用命令行的 media scan 扫一个目录进来。"
+                    : "No images yet. Import a folder with the media scan command.";
+                color: Theme.muted;
+                font-size: Theme.font(12);
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if root.cells.length > 0: ScrollView {
+                vertical-scrollbar-policy: always-off;
+                horizontal-scrollbar-policy: always-off;
+
+                Rectangle {
+                    width: root.width;
+                    height: root.edge-padding * 2 + root.grid-rows * (root.cell-height + root.cell-gap);
+
+                    for cell[index] in root.cells: Rectangle {
+                        x: root.edge-padding + (index % root.columns) * (root.cell-width + root.cell-gap);
+                        y: root.edge-padding + ((index - (index % root.columns)) / root.columns) * (root.cell-height + root.cell-gap);
+                        width: root.cell-width;
+                        height: root.cell-height;
+                        border-radius: 5px * Theme.ui-scale;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        cell-touch := TouchArea {
+                            double-clicked => { root.open-folder(cell.path); }
+                        }
+
+                        background: cell-touch.has-hover ? Theme.hover : Theme.panel;
+
+                        VerticalLayout {
+                            padding: 5px * Theme.ui-scale;
+                            spacing: 4px * Theme.ui-scale;
+
+                            // 缩略图位。下一批换成 Image，加载缓存里的小图。
+                            Rectangle {
+                                vertical-stretch: 1;
+                                border-radius: 3px * Theme.ui-scale;
+                                background: Theme.trough;
+
+                                Text {
+                                    text: cell.format;
+                                    color: Theme.segment;
+                                    font-size: Theme.font(11);
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                height: 13px * Theme.ui-scale;
+                                text: cell.name;
+                                color: Theme.ink;
+                                font-size: Theme.font(11);
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                height: 11px * Theme.ui-scale;
+                                text: cell.detail;
+                                color: Theme.muted;
+                                font-size: Theme.font(10);
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        if cell.favorite: Text {
+                            x: 4px * Theme.ui-scale;
+                            y: 4px * Theme.ui-scale;
+                            width: 14px * Theme.ui-scale;
+                            text: "★";
+                            color: Theme.apricot;
+                            font-size: Theme.font(11);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

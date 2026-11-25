@@ -7,7 +7,9 @@ import { AuditionPanel, PeakSettings, RulerTick } from "audition-panel.slint";
 import { SearchTaskTab } from "search-task-tabs.slint";
 import { AiSearchPanel, AiSearchAction, AiQuickSearch, AiSuggestion } from "ai-search-panel.slint";
 import { AiSidebarToggle } from "ai-sidebar-toggle.slint";
+import { AssetGrid, AssetCell } from "asset-grid.slint";
 export { AiSuggestion }
+export { AssetCell }
 // Exported so tests can exercise non-default scales; the desktop does not touch it yet.
 export { Theme }
 export { RulerTick }
@@ -1523,6 +1525,13 @@ export component AppWindow inherits Window {
     // Studio's navigation rail can collapse its own library pane without
     // changing the default workbench's persisted pane preferences.
     in-out property <bool> sidebar-visible: true;
+    // 图片素材浮层。独立于音频列表，打开时盖住整个窗口。
+    in-out property <bool> asset-grid-visible: false;
+    in-out property <int> asset-cell-size: 1;
+    in-out property <[AssetCell]> asset-cells;
+    in property <string> asset-count-text;
+    callback open-asset-grid();
+    callback open-asset-folder(string);
     // Library/album declared by the file itself; empty means the file has none.
     in property <string> selected-album: "";
     in property <string> selected-album-id: "";
@@ -2476,7 +2485,6 @@ export component AppWindow inherits Window {
         root.context-file = row;
         file-menu.show({x: position.x - file-menu.absolute-position.x, y: position.y - file-menu.absolute-position.y});
     }
-
     // 在波形区右键时弹出同一套文件菜单，用当前选中项补一份行数据。
     public function show-selected-file-menu(position: Point) {
         if !root.has-selection { return; }
@@ -2763,6 +2771,7 @@ export component AppWindow inherits Window {
         visible: true;
         Menu { title: root.chinese ? "文件" : "File"; enabled: root.menu-ready;
             MenuItem { title: root.chinese ? "新建本地音效库…" : "New local library…"; enabled: root.menu-ready; activated => { root.open-local-library-form(false); } }
+            MenuItem { title: root.chinese ? "图片素材库…" : "Image library…"; enabled: root.menu-ready; activated => { root.open-asset-grid(); } }
             MenuItem { title: root.chinese ? "添加已有本地音效库…" : "Add existing local library…"; enabled: root.menu-ready; activated => { root.open-local-library-form(true); } }
             MenuItem { title: root.chinese ? "添加服务器连接…" : "Add server connection…"; enabled: root.menu-ready; activated => { root.open-server-connection(); } }
             MenuSeparator { }
@@ -6265,5 +6274,18 @@ main-scroll := ScrollView {
             background: bit ? #ffffff : #000000;
         }
     }
+    }
+    // 图片素材浮层：盖在整窗之上，关掉就回到音频界面。
+    if root.asset-grid-visible: AssetGrid {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        chinese: root.chinese;
+        cells: root.asset-cells;
+        count-text: root.asset-count-text;
+        cell-size <=> root.asset-cell-size;
+        close-requested => { root.asset-grid-visible = false; }
+        open-folder(path) => { root.open-asset-folder(path); }
     }
 }

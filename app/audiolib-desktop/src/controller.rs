@@ -14,7 +14,9 @@ use crate::list_waveforms::{
 use crate::waveform_view::{
     WaveView, db_from_gain, gain_from_db, render_waveform, render_waveform_mask, ruler_marks,
 };
-use crate::{AlbumRow, AppWindow, AudioRow, CrumbRow, FolderRow, LocalScanRootRow, RulerTick};
+use crate::{
+    AlbumRow, AppWindow, AssetCell, AudioRow, CrumbRow, FolderRow, LocalScanRootRow, RulerTick,
+};
 use audiolib_audio::{
     AudioBackend, AudioCommand, AudioDevice, AudioEvent, AudioHandle, AuditionSettings,
     PlaybackConfig, PlaybackState, RatePolicy, WaveformRequest,
@@ -1269,12 +1271,70 @@ impl Controller {
         controller
     }
 
+    /// 图片素材浮层：打开时把库里已有的图片读成网格单元交给界面。
+    ///
+    /// 第一版一次最多取 5000 条，不做分页。当前库只有一百多张，这个上限
+    /// 足够；等缩略图缓存做完再补虚拟滚动和分页。
+    fn bind_asset_grid(self: &Arc<Self>, ui: &AppWindow) {
+        let c = self.clone();
+        ui.on_open_asset_grid(move || {
+            let Some(ui) = c.ui.upgrade() else {
+                return;
+            };
+            c.load_asset_cells(&ui);
+            ui.set_asset_grid_visible(true);
+        });
+        let c = self.clone();
+        ui.on_open_asset_folder(move |path| {
+            let path = path.to_string();
+            if path.is_empty() {
+                return;
+            }
+            c.open_explorer(path, false);
+        });
+    }
+
+    fn load_asset_cells(&self, ui: &AppWindow) {
+        let query = audiolib_db::MediaQuery {
+            sort: audiolib_db::MediaSort::NameAsc,
+            limit: 5000,
+            ..Default::default()
+        };
+        let rows = match self.provider().media_list(&query) {
+            Ok(rows) => rows,
+            Err(error) => {
+                self.status(error.to_string());
+                Vec::new()
+            }
+        };
+        let cells: Vec<AssetCell> = rows
+            .iter()
+            .map(|asset| AssetCell {
+                id: asset.id as i32,
+                name: asset.filename.clone().into(),
+                path: asset.file_path.clone().into(),
+                detail: asset_detail(asset).into(),
+                format: asset.format.to_uppercase().into(),
+                favorite: asset.favorite,
+            })
+            .collect();
+        let chinese = ui.get_chinese();
+        let count_text = if chinese {
+            format!("{} 项", cells.len())
+        } else {
+            format!("{} items", cells.len())
+        };
+        ui.set_asset_count_text(count_text.into());
+        ui.set_asset_cells(ModelRc::new(VecModel::from(cells)));
+    }
+
     fn bind(self: &Arc<Self>, ui: &AppWindow) {
         self.bind_search_tasks(ui);
         self.bind_ai_search(ui);
         self.bind_artwork(ui);
         self.bind_search_v2_ux(ui);
         self.bind_wave_selection(ui);
+        self.bind_asset_grid(ui);
         let c = self.clone();
         ui.on_exit_requested(move || {
             if let Some(ui) = c.ui.upgrade() {
@@ -8834,6 +8894,22 @@ impl ListWaveformHost for Controller {
                 publish_list_waveforms(&ui, cells);
             }
         });
+    }
+}
+
+/// 网格格子第二行的说明文字，形如 `1920×1080 · 240 KB`。
+fn asset_detail(asset: &audiolib_db::MediaAsset) -> String {
+    let size = if asset.file_size >= 1024 * 1024 {
+        format!("{:.1} MB", asset.file_size as f64 / (1024.0 * 1024.0))
+    } else if asset.file_size >= 1024 {
+        format!("{} KB", asset.file_size / 1024)
+    } else {
+        format!("{} B", asset.file_size)
+    };
+    if asset.width > 0 && asset.height > 0 {
+        format!("{}×{} · {}", asset.width, asset.height, size)
+    } else {
+        size
     }
 }
 
