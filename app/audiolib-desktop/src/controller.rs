@@ -1290,7 +1290,9 @@ impl Controller {
             if path.is_empty() {
                 return;
             }
-            c.open_explorer(path, false);
+            // reveal_path 会打开所在文件夹并选中这个文件；reveal_folder 只接受
+            // 目录，传文件路径会直接返回 NotFound，什么都不会发生。
+            c.open_explorer(path, true);
         });
     }
 
