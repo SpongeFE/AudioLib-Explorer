@@ -1,11 +1,16 @@
 // app/audiolib-desktop/ui/asset-grid.slint
 // 图片素材网格。作为整窗浮层挂在 AppWindow 的最外层，不参与音频列表的布局，
-// 所以开关它不会动到 586 KB 的 app-window.slint 里的任何既有排版。
+// 所以开关它不会动到 app-window.slint 里的任何既有排版。
+//
+// 滚动不用 std-widgets 的 ScrollView，改成 Flickable + 自绘滚动条。
+// 原因：ScrollView 的滚动条颜色来自全局 Palette，项目用的是自定义 Theme，
+// 没有覆盖 Palette，结果滚动条和深色背景同色，等于看不见；它的 viewport
+// 起点也不完全由我们控制，顶部会吃掉几个像素。Flickable 只负责滚动和裁剪，
+// 滚动条长什么样、在哪、多粗，全部由这里决定。
 //
 // 这一版只画格子不画图：缩略图要解码原图（目录里有 53 MB 的 gif），必须先在
 // Rust 侧生成小图缓存，再由 Image 加载缓存文件。先让格子跑起来，图下一批接。
 
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 /// 网格里的一格。尺寸、大小、格式都在 Rust 侧拼成字符串，
@@ -83,19 +88,23 @@ export component AssetGrid inherits Rectangle {
 
     // 顶栏和网格区都用绝对定位，不交给 VerticalLayout 分配。
     // layout 会按子元素的 preferred 尺寸算高度，而绝对定位的子元素
-    // preferred 是 0，最后算出来的可视区高度不对，滚动就没有余量。
+    // preferred 是 0，算出来的可视区高度不对，滚动就没有余量。
     private property <length> bar-height: 44px * Theme.ui-scale;
+    // 右侧留给滚动条的宽度。格子宽度从可用宽度里减掉它，避免最后一列被压住。
+    private property <length> sb-gutter: 10px * Theme.ui-scale;
 
     // 列数固定按档位给，格子宽度反过来由宽度算出。
     // 这样全程只用整数和 length 运算，不出现 float 转 int。
     private property <int> columns: root.cell-size == 0 ? 8 : (root.cell-size == 2 ? 4 : 6);
     private property <length> cell-gap: 8px * Theme.ui-scale;
     private property <length> edge-padding: 12px * Theme.ui-scale;
-    private property <length> usable-width: max(1px, root.width - root.edge-padding * 2);
+    private property <length> usable-width: max(1px, root.width - root.edge-padding * 2 - root.sb-gutter);
     private property <length> cell-width: (root.usable-width - root.cell-gap * (root.columns - 1)) / root.columns;
     private property <length> cell-height: root.cell-width * 0.75 + 34px * Theme.ui-scale;
     private property <int> grid-rows: max(1, (root.cells.length + root.columns - 1) / root.columns);
     private property <length> grid-height: root.edge-padding * 2 + root.grid-rows * (root.cell-height + root.cell-gap);
+    private property <length> view-height: max(0px, root.height - root.bar-height);
+    private property <length> scroll-range: max(0px, root.grid-height - root.view-height);
 
     // ── 顶栏 ────────────────────────────────────────────────────────
     Rectangle {
@@ -163,17 +172,21 @@ export component AssetGrid inherits Rectangle {
         }
     }
 
-    // ── 网格 ────────────────────────────────────────────────────────
-    Rectangle {
+    // ── 网格（滚动区） ───────────────────────────────────────────────
+    // 只负责滚动和裁剪，clip 打开，内容不会越过顶栏。
+    grid-flick := Flickable {
         x: 0px;
         y: root.bar-height;
         width: root.width;
-        height: max(0px, root.height - root.bar-height);
-        background: Theme.bg;
+        height: root.view-height;
+        viewport-width: root.width;
+        viewport-height: root.grid-height;
+        interactive: true;
+        clip: true;
 
         if root.cells.length == 0: Text {
-            width: parent.width;
-            height: parent.height;
+            width: root.width;
+            height: root.view-height;
             text: root.chinese
                 ? "还没有图片。用命令行的 media scan 扫一个目录进来。"
                 : "No images yet. Import a folder with the media scan command.";
@@ -183,85 +196,116 @@ export component AssetGrid inherits Rectangle {
             vertical-alignment: center;
         }
 
-        if root.cells.length > 0: ScrollView {
-            // 滚动容器必须同时给出「可视区尺寸」和「内容尺寸」。
-            // 只给子元素 height 是不够的：绝对定位的子元素不参与 preferred
-            // 计算，viewport-height 会被算成 0，于是没有可滚的余量。
-            x: 0px;
-            y: 0px;
-            width: parent.width;
-            height: parent.height;
-            viewport-width: root.width;
-            viewport-height: root.grid-height;
-            vertical-scrollbar-policy: as-needed;
-            horizontal-scrollbar-policy: always-off;
+        if root.cells.length > 0: Rectangle {
+            width: root.width;
+            height: root.grid-height;
 
-            Rectangle {
-                width: root.width;
-                height: root.grid-height;
+            for cell[index] in root.cells: Rectangle {
+                // Slint 没有 % 运算符，取模要用 Math.mod。
+                x: root.edge-padding + Math.mod(index, root.columns) * (root.cell-width + root.cell-gap);
+                y: root.edge-padding + ((index - Math.mod(index, root.columns)) / root.columns) * (root.cell-height + root.cell-gap);
+                width: root.cell-width;
+                height: root.cell-height;
+                border-radius: 5px * Theme.ui-scale;
+                border-width: 1px;
+                border-color: Theme.border;
 
-                for cell[index] in root.cells: Rectangle {
-                    // Slint 没有 % 运算符，取模要用 Math.mod。
-                    x: root.edge-padding + Math.mod(index, root.columns) * (root.cell-width + root.cell-gap);
-                    y: root.edge-padding + ((index - Math.mod(index, root.columns)) / root.columns) * (root.cell-height + root.cell-gap);
-                    width: root.cell-width;
-                    height: root.cell-height;
-                    border-radius: 5px * Theme.ui-scale;
-                    border-width: 1px;
-                    border-color: Theme.border;
+                cell-touch := TouchArea {
+                    double-clicked => { root.open-folder(cell.path); }
+                }
 
-                    cell-touch := TouchArea {
-                        double-clicked => { root.open-folder(cell.path); }
-                    }
+                background: cell-touch.has-hover ? Theme.hover : Theme.panel;
 
-                    background: cell-touch.has-hover ? Theme.hover : Theme.panel;
+                VerticalLayout {
+                    padding: 5px * Theme.ui-scale;
+                    spacing: 4px * Theme.ui-scale;
 
-                    VerticalLayout {
-                        padding: 5px * Theme.ui-scale;
-                        spacing: 4px * Theme.ui-scale;
-
-                        // 缩略图位。下一批换成 Image，加载缓存里的小图。
-                        Rectangle {
-                            vertical-stretch: 1;
-                            border-radius: 3px * Theme.ui-scale;
-                            background: Theme.trough;
-
-                            Text {
-                                text: cell.format;
-                                color: Theme.segment;
-                                font-size: Theme.font(11);
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-                        }
+                    // 缩略图位。下一批换成 Image，加载缓存里的小图。
+                    Rectangle {
+                        vertical-stretch: 1;
+                        border-radius: 3px * Theme.ui-scale;
+                        background: Theme.trough;
 
                         Text {
-                            height: 13px * Theme.ui-scale;
-                            text: cell.name;
-                            color: Theme.ink;
+                            text: cell.format;
+                            color: Theme.segment;
                             font-size: Theme.font(11);
-                            overflow: elide;
-                            vertical-alignment: center;
-                        }
-
-                        Text {
-                            height: 11px * Theme.ui-scale;
-                            text: cell.detail;
-                            color: Theme.muted;
-                            font-size: Theme.font(10);
-                            overflow: elide;
+                            horizontal-alignment: center;
                             vertical-alignment: center;
                         }
                     }
 
-                    if cell.favorite: Text {
-                        x: 4px * Theme.ui-scale;
-                        y: 4px * Theme.ui-scale;
-                        width: 14px * Theme.ui-scale;
-                        text: "★";
-                        color: Theme.apricot;
+                    Text {
+                        height: 13px * Theme.ui-scale;
+                        text: cell.name;
+                        color: Theme.ink;
                         font-size: Theme.font(11);
+                        overflow: elide;
+                        vertical-alignment: center;
                     }
+
+                    Text {
+                        height: 11px * Theme.ui-scale;
+                        text: cell.detail;
+                        color: Theme.muted;
+                        font-size: Theme.font(10);
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                }
+
+                if cell.favorite: Text {
+                    x: 4px * Theme.ui-scale;
+                    y: 4px * Theme.ui-scale;
+                    width: 14px * Theme.ui-scale;
+                    text: "★";
+                    color: Theme.apricot;
+                    font-size: Theme.font(11);
+                }
+            }
+        }
+    }
+
+    // ── 自绘滚动条 ───────────────────────────────────────────────────
+    // 只在内容超出可视区时出现，始终可见（不是 hover 才浮出来的那种）。
+    private property <float> thumb-ratio: root.grid-height <= 0px ? 1.0 : (root.view-height / root.grid-height);
+    private property <length> thumb-height: max(24px * Theme.ui-scale, root.view-height * root.thumb-ratio);
+    private property <length> thumb-travel: max(0px, root.view-height - root.thumb-height);
+    private property <float> thumb-progress: root.scroll-range <= 0px ? 0.0 : clamp(-grid-flick.viewport-y / root.scroll-range, 0.0, 1.0);
+    private property <length> thumb-offset: root.thumb-travel * root.thumb-progress;
+
+    // 把滚动条的拖动换算成内容位移。delta 是鼠标相对按下点的位移（向下为正）。
+    private function drag-thumb(delta: float, start-vp: float) {
+        if root.thumb-travel <= 0px { return; }
+        grid-flick.viewport-y = clamp(
+            start-vp - delta * (root.scroll-range / root.thumb-travel),
+            -(root.scroll-range / 1px),
+            0.0
+        ) * 1px;
+    }
+
+    if root.scroll-range > 0px: Rectangle {
+        x: root.width - root.sb-gutter + 2px * Theme.ui-scale;
+        y: root.bar-height + root.thumb-offset;
+        width: 6px * Theme.ui-scale;
+        height: root.thumb-height;
+        border-radius: 3px * Theme.ui-scale;
+        background: sb-touch.pressed ? Theme.dim : (sb-touch.has-hover ? Theme.dim : Theme.segment);
+
+        sb-touch := TouchArea {
+            property <length> press-y: 0px;
+            property <float> press-vp: 0.0;
+
+            pointer-event(e) => {
+                if (e.kind == PointerEventKind.down) {
+                    self.press-y = self.mouse-y;
+                    self.press-vp = grid-flick.viewport-y / 1px;
+                }
+            }
+
+            moved => {
+                if (self.pressed) {
+                    root.drag-thumb((self.mouse-y - self.press-y) / 1px, self.press-vp);
                 }
             }
         }
