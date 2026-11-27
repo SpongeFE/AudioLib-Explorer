@@ -8,6 +8,7 @@ import { SearchTaskTab } from "search-task-tabs.slint";
 import { AiSearchPanel, AiSearchAction, AiQuickSearch, AiSuggestion } from "ai-search-panel.slint";
 import { AiSidebarToggle } from "ai-sidebar-toggle.slint";
 import { AssetGrid, AssetCell } from "asset-grid.slint";
+import { AppRail } from "app-rail.slint";
 export { AiSuggestion }
 export { AssetCell }
 // Exported so tests can exercise non-default scales; the desktop does not touch it yet.
@@ -1525,8 +1526,13 @@ export component AppWindow inherits Window {
     // Studio's navigation rail can collapse its own library pane without
     // changing the default workbench's persisted pane preferences.
     in-out property <bool> sidebar-visible: true;
-    // 图片素材浮层。独立于音频列表，打开时盖住整个窗口。
+    // 左侧一级导航条宽度。音效库 / 图片素材 并排在这里。
+    private property <length> rail-width: 76px * Theme.ui-scale;
+    /// 一级页面：0 = 音效库，1 = 图片素材。
+    in-out property <int> main-rail: 0;
+    // 图片素材浮层。独立于音频列表，打开时盖住导航条右侧的内容区。
     in-out property <bool> asset-grid-visible: false;
+    changed asset-grid-visible => { root.main-rail = root.asset-grid-visible ? 1 : 0; }
     in-out property <int> asset-cell-size: 1;
     in-out property <[AssetCell]> asset-cells;
     in property <string> asset-count-text;
@@ -2304,7 +2310,7 @@ export component AppWindow inherits Window {
     // Menu targets are immutable IDs/paths captured when opened, never row positions.
     // Derived geometry must stay bound to the current presentation and scale;
     // cached width/height callbacks become stale when Appearance changes alone.
-    private property <length> content-width: root.width - (Theme.modern-style ? 8px : 32px) * Theme.ui-scale;
+    private property <length> content-width: root.width - root.rail-width - (Theme.modern-style ? 8px : 32px) * Theme.ui-scale;
     private property <length> visible-sidebar-width: root.sidebar-visible ? root.sidebar-width : 0px;
     private property <length> pane-dividers-width: ((root.sidebar-visible ? 12px : 0px) + (root.inspector-visible ? 12px : 0px)) * Theme.ui-scale;
     property <bool> wide-layout: root.content-width - root.visible-sidebar-width - (root.inspector-visible ? root.inspector-width : 0px) - root.pane-dividers-width >= 720px * Theme.ui-scale;
@@ -2771,7 +2777,7 @@ export component AppWindow inherits Window {
         visible: true;
         Menu { title: root.chinese ? "文件" : "File"; enabled: root.menu-ready;
             MenuItem { title: root.chinese ? "新建本地音效库…" : "New local library…"; enabled: root.menu-ready; activated => { root.open-local-library-form(false); } }
-            MenuItem { title: root.chinese ? "图片素材库…" : "Image library…"; enabled: root.menu-ready; activated => { root.open-asset-grid(); } }
+            MenuItem { title: root.chinese ? "图片素材库…" : "Image library…"; enabled: root.menu-ready; activated => { root.main-rail = 1; root.open-asset-grid(); } }
             MenuItem { title: root.chinese ? "添加已有本地音效库…" : "Add existing local library…"; enabled: root.menu-ready; activated => { root.open-local-library-form(true); } }
             MenuItem { title: root.chinese ? "添加服务器连接…" : "Add server connection…"; enabled: root.menu-ready; activated => { root.open-server-connection(); } }
             MenuSeparator { }
@@ -2883,8 +2889,27 @@ export component AppWindow inherits Window {
             MenuItem { title: root.chinese ? "关于 AudioLib Explorer" : "About AudioLib Explorer"; enabled: root.menu-ready; activated => { root.about-visible = true; } }
         }
     }
+    // 最左侧一级导航。先声明，绘制顺序在 shortcuts 下面。
+    AppRail {
+        x: 0px;
+        y: 0px;
+        width: root.rail-width;
+        height: root.height;
+        chinese: root.chinese;
+        current: root.main-rail;
+        select(page) => {
+            root.main-rail = page;
+            if (page == 1) {
+                root.open-asset-grid();
+            } else {
+                root.asset-grid-visible = false;
+            }
+        }
+    }
     forward-focus: shortcuts;
     shortcuts := FocusScope {
+        x: root.rail-width;
+        width: parent.width - root.rail-width;
         min-width: 0px; min-height: 0px; preferred-width: 1440px * Theme.ui-scale; preferred-height: 900px * Theme.ui-scale;
         focus-on-click: false;
         capture-key-pressed(event) => {
@@ -6275,11 +6300,11 @@ main-scroll := ScrollView {
         }
     }
     }
-    // 图片素材浮层：盖在整窗之上，关掉就回到音频界面。
+    // 图片素材浮层：只盖住导航条右边，左侧导航始终能点。
     if root.asset-grid-visible: AssetGrid {
-        x: 0px;
+        x: root.rail-width;
         y: 0px;
-        width: root.width;
+        width: root.width - root.rail-width;
         height: root.height;
         chinese: root.chinese;
         cells: root.asset-cells;

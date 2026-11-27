@@ -1,0 +1,177 @@
+// app/audiolib-desktop/ui/app-rail.slint
+// 最左侧的一级导航条。音效库 / 图片素材 在这里并排，点一下就切，
+// 不用再从「文件」菜单里找。
+//
+// 图标用 Rectangle 拼，不用字体符号：项目在 Windows 上用 Segoe UI，
+// 但某些系统字体里 ♪ ▦ 这类字符会被替换成方框，自己画就没有这个风险。
+
+import { Theme } from "theme.slint";
+
+/// 音效库图标：四根高低不一的竖条，像一段波形。
+component GlyphBars inherits Rectangle {
+    in property <color> tint;
+
+    width: 20px * Theme.ui-scale;
+    height: 18px * Theme.ui-scale;
+
+    Rectangle {
+        x: 1px * Theme.ui-scale;
+        y: 8px * Theme.ui-scale;
+        width: 3px * Theme.ui-scale;
+        height: 4px * Theme.ui-scale;
+        border-radius: 1.5px * Theme.ui-scale;
+        background: root.tint;
+    }
+    Rectangle {
+        x: 6px * Theme.ui-scale;
+        y: 4px * Theme.ui-scale;
+        width: 3px * Theme.ui-scale;
+        height: 12px * Theme.ui-scale;
+        border-radius: 1.5px * Theme.ui-scale;
+        background: root.tint;
+    }
+    Rectangle {
+        x: 11px * Theme.ui-scale;
+        y: 6px * Theme.ui-scale;
+        width: 3px * Theme.ui-scale;
+        height: 8px * Theme.ui-scale;
+        border-radius: 1.5px * Theme.ui-scale;
+        background: root.tint;
+    }
+    Rectangle {
+        x: 16px * Theme.ui-scale;
+        y: 1px * Theme.ui-scale;
+        width: 3px * Theme.ui-scale;
+        height: 16px * Theme.ui-scale;
+        border-radius: 1.5px * Theme.ui-scale;
+        background: root.tint;
+    }
+}
+
+/// 图片素材图标：2×2 方格。
+component GlyphGrid inherits Rectangle {
+    in property <color> tint;
+
+    width: 18px * Theme.ui-scale;
+    height: 18px * Theme.ui-scale;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 7px * Theme.ui-scale;
+        height: 7px * Theme.ui-scale;
+        border-radius: 2px * Theme.ui-scale;
+        background: root.tint;
+    }
+    Rectangle {
+        x: 11px * Theme.ui-scale;
+        y: 0px;
+        width: 7px * Theme.ui-scale;
+        height: 7px * Theme.ui-scale;
+        border-radius: 2px * Theme.ui-scale;
+        background: root.tint;
+    }
+    Rectangle {
+        x: 0px;
+        y: 11px * Theme.ui-scale;
+        width: 7px * Theme.ui-scale;
+        height: 7px * Theme.ui-scale;
+        border-radius: 2px * Theme.ui-scale;
+        background: root.tint;
+    }
+    Rectangle {
+        x: 11px * Theme.ui-scale;
+        y: 11px * Theme.ui-scale;
+        width: 7px * Theme.ui-scale;
+        height: 7px * Theme.ui-scale;
+        border-radius: 2px * Theme.ui-scale;
+        background: root.tint;
+    }
+}
+
+/// 导航条上的一项。
+component RailItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    /// 0 = 音效库波形图标，1 = 图片素材方格图标。
+    in property <int> glyph-kind: 0;
+    callback clicked();
+
+    height: 58px * Theme.ui-scale;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    background: root.active ? Theme.raised : (touch.has-hover ? Theme.hover : Theme.rail-surface);
+
+    // 选中时左边一条竖线，颜色跟主题强调色一致。
+    if root.active: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 3px * Theme.ui-scale;
+        height: parent.height;
+        background: Theme.accent;
+    }
+
+    VerticalLayout {
+        alignment: center;
+        padding-top: 10px * Theme.ui-scale;
+        padding-bottom: 8px * Theme.ui-scale;
+        spacing: 5px * Theme.ui-scale;
+
+        if root.glyph-kind == 0: GlyphBars {
+            tint: root.active ? Theme.accent : Theme.dim;
+        }
+        if root.glyph-kind == 1: GlyphGrid {
+            tint: root.active ? Theme.accent : Theme.dim;
+        }
+
+        Text {
+            text: root.label;
+            color: root.active ? Theme.ink : Theme.muted;
+            font-size: Theme.font(10);
+            height: 13px * Theme.ui-scale;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+export component AppRail inherits Rectangle {
+    in property <bool> chinese;
+    /// 当前一级页面：0 = 音效库，1 = 图片素材。
+    in property <int> current: 0;
+    callback select(int);
+
+    background: Theme.rail-surface;
+
+    // 右边界线，和右边内容区分开。
+    Rectangle {
+        x: parent.width - 1px;
+        y: 0px;
+        width: 1px;
+        height: parent.height;
+        background: Theme.border;
+    }
+
+    VerticalLayout {
+        padding-top: 6px * Theme.ui-scale;
+        spacing: 1px * Theme.ui-scale;
+
+        RailItem {
+            glyph-kind: 0;
+            label: root.chinese ? "音效库" : "Sounds";
+            active: root.current == 0;
+            clicked => { root.select(0); }
+        }
+
+        RailItem {
+            glyph-kind: 1;
+            label: root.chinese ? "图片素材" : "Images";
+            active: root.current == 1;
+            clicked => { root.select(1); }
+        }
+    }
+}
