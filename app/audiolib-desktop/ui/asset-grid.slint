@@ -275,10 +275,10 @@ export component AssetGrid inherits Rectangle {
     private property <length> thumb-offset: root.thumb-travel * root.thumb-progress;
 
     // 把滚动条的拖动换算成内容位移。delta 是鼠标相对按下点的位移（向下为正）。
-    private function drag-thumb(delta: float, start-vp: float) {
+    function dragthumb(delta: float, startvp: float) {
         if root.thumb-travel <= 0px { return; }
         grid-flick.viewport-y = clamp(
-            start-vp - delta * (root.scroll-range / root.thumb-travel),
+            startvp - delta * (root.scroll-range / root.thumb-travel),
             -(root.scroll-range / 1px),
             0.0
         ) * 1px;
@@ -290,8 +290,9 @@ export component AssetGrid inherits Rectangle {
         width: 6px * Theme.ui-scale;
         height: root.thumb-height;
         border-radius: 3px * Theme.ui-scale;
-        background: sb-touch.pressed ? Theme.dim : (sb-touch.has-hover ? Theme.dim : Theme.segment);
 
+        // 先声明再引用：Slint 是单遍解析，background 里用到的 sb-touch
+        // 必须写在它前面。
         sb-touch := TouchArea {
             property <length> press-y: 0px;
             property <float> press-vp: 0.0;
@@ -305,9 +306,11 @@ export component AssetGrid inherits Rectangle {
 
             moved => {
                 if (self.pressed) {
-                    root.drag-thumb((self.mouse-y - self.press-y) / 1px, self.press-vp);
+                    root.dragthumb((self.mouse-y - self.press-y) / 1px, self.press-vp);
                 }
             }
         }
+
+        background: sb-touch.pressed ? Theme.dim : (sb-touch.has-hover ? Theme.dim : Theme.segment);
     }
 }
