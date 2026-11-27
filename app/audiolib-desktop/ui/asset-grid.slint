@@ -173,16 +173,24 @@ export component AssetGrid inherits Rectangle {
     }
 
     // ── 网格（滚动区） ───────────────────────────────────────────────
-    // 只负责滚动和裁剪，clip 打开，内容不会越过顶栏。
-    grid-flick := Flickable {
+    // Flickable 本身不接受 clip（Slint 里 clip 只能给 Rectangle / Path），
+    // 所以外面套一层 Rectangle 做裁剪，保证内容不会越过顶栏。
+    Rectangle {
         x: 0px;
         y: root.bar-height;
         width: root.width;
         height: root.view-height;
+        clip: true;
+        background: #00000000;
+
+    grid-flick := Flickable {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
         viewport-width: root.width;
         viewport-height: root.grid-height;
         interactive: true;
-        clip: true;
 
         if root.cells.length == 0: Text {
             width: root.width;
@@ -264,6 +272,7 @@ export component AssetGrid inherits Rectangle {
                 }
             }
         }
+    }
     }
 
     // ── 自绘滚动条 ───────────────────────────────────────────────────
