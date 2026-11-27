@@ -276,7 +276,7 @@ export component AssetGrid inherits Rectangle {
 
     // 把滚动条的拖动换算成内容位移。delta 是鼠标相对按下点的位移（向下为正）。
     function dragthumb(delta: float, startvp: float) {
-        if root.thumb-travel <= 0px { return; }
+        if (root.thumb-travel <= 0px) { return; }
         grid-flick.viewport-y = clamp(
             startvp - delta * (root.scroll-range / root.thumb-travel),
             -(root.scroll-range / 1px),
